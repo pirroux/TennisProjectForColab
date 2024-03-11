@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import torch
+import os
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 from scipy import signal
@@ -43,11 +44,15 @@ class BallDetector:
     """
     Ball Detector model responsible for receiving the frames and detecting the ball
     """
-    def __init__(self, save_state, out_channels=2):
+    def __init__(self, model_saved_state, out_channels=2):
+        # Construct absolute path to the weights file
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        weights_path = os.path.join(script_directory, '..', 'saved states', model_saved_state)
+
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # Load TrackNet model weights
         self.detector = BallTrackerNet(out_channels=out_channels)
-        saved_state_dict = torch.load(save_state)
+        saved_state_dict = torch.load(weights_path)
         self.detector.load_state_dict(saved_state_dict['model_state'])
         self.detector.eval().to(self.device)
 

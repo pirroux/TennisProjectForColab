@@ -1,4 +1,5 @@
 import cv2
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -48,7 +49,20 @@ class CourtReference:
         self.court_total_width = self.court_width + self.right_left_border * 2
         self.court_total_height = self.court_height + self.top_bottom_border * 2
 
-        self.court = cv2.cvtColor(cv2.imread('court_configurations/court_reference.png'), cv2.COLOR_BGR2GRAY)
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        image_path = os.path.join(script_directory, 'court_configurations', 'court_reference.png')
+
+        # Attempt to read the image
+        image = cv2.imread(image_path)
+
+        # Check for read errors
+        if image is None or image.size == 0:
+            raise FileNotFoundError(f"Unable to read the image file: {image_path}")
+
+        # Convert the image to grayscale
+        self.court = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        #self.court = cv2.cvtColor(cv2.imread('court_configurations/court_reference.png'), cv2.COLOR_BGR2GRAY)
 
     def build_court_reference(self):
         """

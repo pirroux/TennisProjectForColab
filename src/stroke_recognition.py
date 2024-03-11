@@ -10,7 +10,7 @@ from torchvision.transforms import ToTensor
 
 from src.datasets import ThetisDataset, create_train_valid_test_datasets, StrokesDataset
 from src.detection import center_of_box
-from utils import get_dtype
+from src.utils import get_dtype
 import pandas as pd
 
 
@@ -77,7 +77,13 @@ class ActionRecognition:
         self.max_seq_len = max_seq_len
         self.LSTM = LSTM_model(3, dtype=self.dtype)
         # Load model`s weights
-        saved_state = torch.load('saved states/' + model_saved_state, map_location='cpu')
+
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        weights_path = os.path.join(script_directory, 'saved states', model_saved_state)
+        saved_state = torch.load(weights_path, map_location='cpu')
+        # Rest of your code...
+
+        #saved_state = torch.load('saved states/' + model_saved_state, map_location='cpu')
         self.LSTM.load_state_dict(saved_state['model_state'])
         self.LSTM.eval()
         self.LSTM.type(self.dtype)
