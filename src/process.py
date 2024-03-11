@@ -442,7 +442,8 @@ def video_process(video_path, show_video=False, include_video=True,
             if frame_i == 1:
                 court_detector.detect(frame)
                 print(f'Court detection {"Success" if court_detector.success_flag else "Failed"}')
-                print(f'Time to detect court :  {time.time() - start_time} seconds')
+                court_detection_time = time.time() - start_time
+                print(f'Time to detect court :  {court_detection_time} seconds')
                 start_time = time.time()
 
             court_detector.track_court(frame)
@@ -515,14 +516,18 @@ def video_process(video_path, show_video=False, include_video=True,
     for stroke_type in prediction_list:
         stroke_counts[stroke_type] = stroke_counts.get(stroke_type, 0) + 1
 
+    court_accuracy = court_detector._get_court_accuracy()
+
     # Create the dictionary with distances and stroke counts
     dico = {
         'distance': {
-            'last_frame_distance_player1': last_frame_distance_p1,
-            'last_frame_distance_player2': last_frame_distance_p2
+            'last_frame_distance_player1': round(last_frame_distance_p1, 1),
+            'last_frame_distance_player2': round(last_frame_distance_p2, 1)
         },
         'stroke': prediction_list,
-        'stroke_counts': stroke_counts
+        'stroke_counts': stroke_counts,
+        'court_detection_time': round(court_detection_time, 1),
+        'court_accuracy': round(court_accuracy, 1)
     }
 
     print(dico)
