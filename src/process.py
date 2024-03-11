@@ -20,6 +20,9 @@ from utils import get_video_properties, get_dtype, get_stickman_line_connection
 from court_detection import CourtDetector
 import matplotlib.pyplot as plt
 
+# add a list of all the strokes detected
+
+all_strokes_rally = []
 
 def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, player_boxes):
     """
@@ -302,6 +305,7 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         if skeleton_df is not None:
             img, img_no_frame = mark_skeleton(skeleton_df, img, img_no_frame, frame_number)
 
+
         # Add stroke prediction
         for i in range(-10, 10):
             if frame_number + i in strokes_predictions.keys():
@@ -316,6 +320,7 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
                 cv2.putText(img, f'Stroke : {stroke}',
                             (int(player1_boxes[frame_number][0]) - 10, int(player1_boxes[frame_number][1]) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                all_strokes_rally.append(stroke)
 
                 break
         # Add stroke detected
@@ -497,7 +502,7 @@ def video_process(video_path, show_video=False, include_video=True,
                       show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file,
                       p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
 
-    # ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
+    ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
 
 
 def main():
@@ -505,6 +510,7 @@ def main():
     video_process(video_path='/content/TennisProject/src/us_open_test2.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
+    print(all_strokes_rally)
 
 
 if __name__ == "__main__":
