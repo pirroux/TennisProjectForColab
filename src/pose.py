@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import os
 import cv2
 import torch

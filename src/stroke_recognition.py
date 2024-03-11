@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import os
 
 import imutils
@@ -8,9 +10,9 @@ from torchvision import transforms
 import torch.nn as nn
 from torchvision.transforms import ToTensor
 
-from src.datasets import ThetisDataset, create_train_valid_test_datasets, StrokesDataset
-from src.detection import center_of_box
-from src.utils import get_dtype
+from datasets import ThetisDataset, create_train_valid_test_datasets, StrokesDataset
+from detection import center_of_box
+from utils import get_dtype
 import pandas as pd
 
 

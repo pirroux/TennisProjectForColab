@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import imutils
 import pandas as pd
 from scipy import signal
@@ -5,8 +7,8 @@ from scipy import signal
 import os
 import cv2
 import numpy as np
-from src.detection import DetectionModel, center_of_box
-from src.utils import get_dtype, get_video_properties
+from detection import DetectionModel, center_of_box
+from utils import get_dtype, get_video_properties
 
 
 def convert_avi_to_mp4(avi_file_path, output_name):

@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import cv2
 import torch.nn as nn
 import numpy as np
@@ -6,11 +8,11 @@ import time
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from src.datasets import TrackNetDataset, get_dataloaders
+from datasets import TrackNetDataset, get_dataloaders
 import matplotlib.pyplot as plt
 from torch.optim.adadelta import Adadelta
 
-from src.trainer import plot_graph
+from trainer import plot_graph
 
 import torch.nn.functional as F
 

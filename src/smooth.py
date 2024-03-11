@@ -1,3 +1,6 @@
+
+import sys
+sys.path.append('/content/TennisProject/src')
 from scipy import signal
 import os
 import numpy as np

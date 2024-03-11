@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import operator
 import os
 import cv2
@@ -7,9 +9,9 @@ import numpy as np
 import pandas as pd
 from scipy import signal
 
-from src.court_detection import CourtDetector
-from src.sort import Sort
-from src.utils import get_video_properties, get_dtype
+from court_detection import CourtDetector
+from sort import Sort
+from utils import get_video_properties, get_dtype
 import matplotlib.pyplot as plt
 
 

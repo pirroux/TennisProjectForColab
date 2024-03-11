@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import cv2
 import os
 import numpy as np

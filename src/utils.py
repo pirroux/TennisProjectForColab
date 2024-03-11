@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/content/TennisProject/src')
 import argparse
 import cv2
 import torch
