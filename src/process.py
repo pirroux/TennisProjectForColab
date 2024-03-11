@@ -324,7 +324,6 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
                 cv2.putText(img, f'Stroke : {stroke}',
                             (int(player1_boxes[frame_number][0]) - 10, int(player1_boxes[frame_number][1]) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                all_strokes_rally.append(stroke)
 
                 break
         # Add stroke detected
@@ -365,11 +364,10 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         frame_number += 1
     print('Creating new video frames %d/%d  ' % (length, length), '\n', end='')
     print(f'New videos created, file name - {output_file}.avi')
-    return last_frame_distance_player1, last_frame_distance_player2
     cap.release()
     out.release()
     cv2.destroyAllWindows()
-
+    return last_frame_distance_player1, last_frame_distance_player2
 
 def create_top_view(court_detector, detection_model):
     """
@@ -392,7 +390,6 @@ def create_top_view(court_detector, detection_model):
         out.write(frame)
     out.release()
     cv2.destroyAllWindows()
-
 
 def video_process(video_path, show_video=False, include_video=True,
                   stickman=True, stickman_box=True, court=True,
@@ -421,7 +418,7 @@ def video_process(video_path, show_video=False, include_video=True,
     pose_extractor = PoseExtractor(person_num=1, box=stickman_box, dtype=dtype) if stickman else None
     stroke_recognition = ActionRecognition('storke_classifier_weights.pth')
     ball_detector = BallDetector('/content/TennisProject/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
-    last_frame_distance_player1, last_frame_distance_player2 = add_data_to_video(input_video=video_path, court_detector=court_detector, players_detector=detection_model, ball_detector=ball_detector, strokes_predictions=predictions, skeleton_df=df_smooth, statistics=statistics, show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file, p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
+
     # Load videos from videos path
     video = cv2.VideoCapture(video_path)
 
@@ -504,22 +501,19 @@ def video_process(video_path, show_video=False, include_video=True,
     statistics.display_heatmap(heatmap, court_detector.court_reference.court, title='Heatmap')
     statistics.get_players_dists()
 
-    add_data_to_video(input_video=video_path, court_detector=court_detector, players_detector=detection_model,
+    last_frame_distance_p1, last_frame_distance_p2 = add_data_to_video(input_video=video_path, court_detector=court_detector, players_detector=detection_model,
                       ball_detector=ball_detector, strokes_predictions=predictions, skeleton_df=df_smooth,
                       statistics=statistics,
                       show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file,
                       p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
-
     ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
-    return last_frame_distance_player1, last_frame_distance_player2
 
 def main():
     s = time.time()
-    video_process(video_path='/content/TennisProject/src/us_open_test2.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    video_process(video_path='/content/TennisProject/src/video_crop_rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
-    print('Distance of last frame for Player 1: {:.2f} m'.format(last_frame_distance_player1))
-    print('Distance of last frame for Player 2: {:.2f} m'.format(last_frame_distance_player2))
+
 
 if __name__ == "__main__":
     main()
