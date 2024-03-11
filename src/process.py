@@ -256,6 +256,10 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     player1_dists = statistics.bottom_dists_array
     player2_dists = statistics.top_dists_array
 
+    last_frame_distance_player1 = player1_dists[-1] / 100
+    last_frame_distance_player2 = player2_dists[-1] / 100
+
+
     if skeleton_df is not None:
         skeleton_df = skeleton_df.fillna(-1)
 
@@ -361,6 +365,7 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         frame_number += 1
     print('Creating new video frames %d/%d  ' % (length, length), '\n', end='')
     print(f'New videos created, file name - {output_file}.avi')
+    return last_frame_distance_player1, last_frame_distance_player2
     cap.release()
     out.release()
     cv2.destroyAllWindows()
@@ -416,7 +421,7 @@ def video_process(video_path, show_video=False, include_video=True,
     pose_extractor = PoseExtractor(person_num=1, box=stickman_box, dtype=dtype) if stickman else None
     stroke_recognition = ActionRecognition('storke_classifier_weights.pth')
     ball_detector = BallDetector('/content/TennisProject/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
-
+    last_frame_distance_player1, last_frame_distance_player2 = add_data_to_video(input_video=video_path, court_detector=court_detector, players_detector=detection_model, ball_detector=ball_detector, strokes_predictions=predictions, skeleton_df=df_smooth, statistics=statistics, show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file, p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
     # Load videos from videos path
     video = cv2.VideoCapture(video_path)
 
@@ -506,7 +511,7 @@ def video_process(video_path, show_video=False, include_video=True,
                       p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
 
     ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
-
+    return last_frame_distance_player1, last_frame_distance_player2
 
 def main():
     s = time.time()
