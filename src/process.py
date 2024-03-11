@@ -20,9 +20,7 @@ from utils import get_video_properties, get_dtype, get_stickman_line_connection
 from court_detection import CourtDetector
 import matplotlib.pyplot as plt
 
-# add a list of all the strokes detected
 
-all_strokes_rally = []
 
 def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, player_boxes):
     """
@@ -53,7 +51,9 @@ def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, playe
         probs, stroke = stroke_recognition.predict_saved_seq()
         predictions[frame_num] = {'probs': probs, 'stroke': stroke}
     cap.release()
+    print(predictions)
     return predictions
+
 
 
 def find_strokes_indices(player_1_boxes, player_2_boxes, ball_positions, skeleton_df, verbose=0):
@@ -518,7 +518,6 @@ def main():
     video_process(video_path='/content/TennisProject/src/us_open_test2.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
-    print(all_strokes_rally)
     print('Distance of last frame for Player 1: {:.2f} m'.format(last_frame_distance_player1))
     print('Distance of last frame for Player 2: {:.2f} m'.format(last_frame_distance_player2))
 
