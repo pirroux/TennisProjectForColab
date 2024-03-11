@@ -387,11 +387,11 @@ def create_top_view(court_detector, detection_model, ball_detector):
 
     for feet_pos_1, feet_pos_2, ball_pos in zip(smoothed_1, smoothed_2, ball_positions):
         frame = court.copy()
-        frame = cv2.circle(frame, (int(feet_pos_1[0]), int(feet_pos_1[1])), 10, (0, 0, 255), 15)
+        frame = cv2.circle(frame, (int(feet_pos_1[0]), int(feet_pos_1[1])), 10, (255, 105, 180), 15)
         if feet_pos_2[0] is not None:
-            frame = cv2.circle(frame, (int(feet_pos_2[0]), int(feet_pos_2[1])), 10, (0, 0, 255), 15)
+            frame = cv2.circle(frame, (int(feet_pos_2[0]), int(feet_pos_2[1])), 10, (255, 105, 180), 15)
         if ball_pos[0] is not None:
-            frame = cv2.circle(frame, (int(ball_pos[0]), int(ball_pos[1])), 10, (0, 255, 0), 15)
+            frame = cv2.circle(frame, (int(ball_pos[0]), int(ball_pos[1])), 10, (0, 255, 255), 15)
         out.write(frame)
     out.release()
     cv2.destroyAllWindows()
