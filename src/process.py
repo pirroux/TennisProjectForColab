@@ -14,7 +14,7 @@ from detection import DetectionModel, center_of_box
 from pose import PoseExtractor
 from smooth import Smooth
 from ball_detection import BallDetector
-from statistics import Statistics
+from my_statistics import Statistics
 from stroke_recognition import ActionRecognition
 from utils import get_video_properties, get_dtype, get_stickman_line_connection
 from court_detection import CourtDetector

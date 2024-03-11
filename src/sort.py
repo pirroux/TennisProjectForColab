@@ -1,3 +1,7 @@
+from __future__ import print_function
+
+
+
 """
     SORT: A Simple, Online and Realtime Tracker
     Copyright (C) 2016-2020 Alex Bewley alex@bewley.ai
@@ -14,7 +18,6 @@
 """
 import sys
 sys.path.append('/content/TennisProject/src')
-from __future__ import print_function
 
 import os
 import numpy as np
