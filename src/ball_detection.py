@@ -144,33 +144,25 @@ class BallDetector:
         return frame
 
     def show_y_graph(self, player_1_boxes, player_2_boxes):
-        """
-        Display ball y index positions and both players y index positions in all the frames in a graph
-        :param player_1_boxes: bottom player boxes
-        :param player_2_boxes: top player boxes
-        """
-        player_1_centers = np.array([center_of_box(box) for box in player_1_boxes])
-        player_1_y_values = player_1_centers[:, 1]
-        # get y value of top quarter of bottom player box
-        player_1_y_values -= np.array([(box[3] - box[1]) // 4 for box in player_1_boxes])
 
-        # Calculate top player boxes center
-        player_2_centers = []
-        for box in player_2_boxes:
-            if box[0] is not None:
-                player_2_centers.append(center_of_box(box))
-            else:
-                player_2_centers.append([None, None])
-        player_2_centers = np.array(player_2_centers)
+        player_1_centers = np.array([center_of_box(box) for box in player_1_boxes])
+        player_1_y_values = player_1_centers[:, 1] - np.array([(box[3] - box[1]) // 4 for box in player_1_boxes])
+
+        player_2_centers = np.array([center_of_box(box) if box[0] is not None else [None, None] for box in player_2_boxes])
         player_2_y_values = player_2_centers[:, 1]
 
         y_values = self.xy_coordinates[:, 1].copy()
         x_values = self.xy_coordinates[:, 0].copy()
 
         plt.figure()
-        plt.scatter(range(len(y_values)), y_values)
-        plt.plot(range(len(player_1_y_values)), player_1_y_values, color='r')
-        plt.plot(range(len(player_2_y_values)), player_2_y_values, color='g')
+        plt.scatter(range(len(y_values)), y_values, marker='o', label='Ball', color='blue')
+        plt.plot(range(len(player_1_y_values)), player_1_y_values, color='r', marker='o', linestyle='-', label='Player 1')
+        plt.plot(range(len(player_2_y_values)), player_2_y_values, color='g', marker='o', linestyle='-', label='Player 2')
+
+        plt.xlabel('Frame Index')
+        plt.ylabel('Y-Index Position')
+        plt.title('Ball and Players Y-Index Positions Over Frames')
+        plt.legend()
         plt.show()
 
 
