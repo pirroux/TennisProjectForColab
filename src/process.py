@@ -502,7 +502,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
 def main():
     s = time.time()
-    video_process(video_path='/content/TennisProject/src/us_open_test2.mp4', show_video=True, stickman=True, stickman_box=False, smoothing=True,
+    video_process(video_path='/content/TennisProject/src/us_open_test2.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
 
