@@ -31,6 +31,7 @@ def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, playe
     fps, length, width, height = get_video_properties(cap)
     video_length = 2
     # For each stroke detected trim video part and predict stroke
+    predicted_strokes = []
     for frame_num in strokes_frames:
         # Trim the video (only relevant frames are taken)
         starting_frame = max(0, frame_num - int(video_length * fps * 2 / 3))
@@ -50,10 +51,10 @@ def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, playe
         # predict the stroke
         probs, stroke = stroke_recognition.predict_saved_seq()
         predictions[frame_num] = {'probs': probs, 'stroke': stroke}
+        predicted_strokes.append(stroke)
     cap.release()
-    print(predictions)
-    return predictions
-
+    print(predicted_strokes)
+    return predictions, predicted_strokes
 
 
 def find_strokes_indices(player_1_boxes, player_2_boxes, ball_positions, skeleton_df, verbose=0):
@@ -493,7 +494,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
     '''ball_detector.bounces_indices = bounces_indices
     ball_detector.coordinates = (f2_x, f2_y)'''
-    predictions = get_stroke_predictions(video_path, stroke_recognition,
+    predictions, prediction_list = get_stroke_predictions(video_path, stroke_recognition,
                                          player_1_strokes_indices, detection_model.player_1_boxes)
 
     statistics = Statistics(court_detector, detection_model)
@@ -507,10 +508,23 @@ def video_process(video_path, show_video=False, include_video=True,
                       show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file,
                       p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
     ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
+    print(f'Last frame distance player 1 : {last_frame_distance_p1} m')
+    print(f'Last frame distance player 2 : {last_frame_distance_p2} m')
+
+    dico = {
+        'distance': {
+            'last_frame_distance_player1': last_frame_distance_p1,
+            'last_frame_distance_player2': last_frame_distance_p2
+        },
+        'stroke': prediction_list
+    }
+
+    print(dico)
+    return dico
 
 def main():
     s = time.time()
-    video_process(video_path='/content/TennisProject/src/video_crop_rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path='/content/TennisProject/src/laaksomen-rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
 
