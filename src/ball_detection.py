@@ -143,6 +143,9 @@ class BallDetector:
             frame = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
         return frame
 
+    def calculate_ball_positions(self):
+        return self.xy_coordinates
+
     def show_y_graph(self, player_1_boxes, player_2_boxes):
 
         player_1_centers = np.array([center_of_box(box) for box in player_1_boxes])

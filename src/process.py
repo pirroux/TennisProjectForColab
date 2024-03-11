@@ -370,24 +370,28 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     cv2.destroyAllWindows()
     return last_frame_distance_player1, last_frame_distance_player2
 
-def create_top_view(court_detector, detection_model):
+def create_top_view(court_detector, detection_model, ball_detector):
     """
     Creates top view video of the gameplay
     """
+
     court = court_detector.court_reference.court.copy()
     court = cv2.line(court, *court_detector.court_reference.net, 255, 5)
     v_width, v_height = court.shape[::-1]
     court = cv2.cvtColor(court, cv2.COLOR_GRAY2BGR)
     out = cv2.VideoWriter('output/top_view.avi',
                           cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 30, (v_width, v_height))
-    # players location on court
+    # players and ball location on court
     smoothed_1, smoothed_2 = detection_model.calculate_feet_positions(court_detector)
+    ball_positions = ball_detector.calculate_ball_positions()
 
-    for feet_pos_1, feet_pos_2 in zip(smoothed_1, smoothed_2):
+    for feet_pos_1, feet_pos_2, ball_pos in zip(smoothed_1, smoothed_2, ball_positions):
         frame = court.copy()
         frame = cv2.circle(frame, (int(feet_pos_1[0]), int(feet_pos_1[1])), 10, (0, 0, 255), 15)
         if feet_pos_2[0] is not None:
             frame = cv2.circle(frame, (int(feet_pos_2[0]), int(feet_pos_2[1])), 10, (0, 0, 255), 15)
+        if ball_pos[0] is not None:
+            frame = cv2.circle(frame, (int(ball_pos[0]), int(ball_pos[1])), 10, (0, 255, 0), 15)
         out.write(frame)
     out.release()
     cv2.destroyAllWindows()
@@ -472,7 +476,7 @@ def video_process(video_path, show_video=False, include_video=True,
     detection_model.find_player_2_box()
 
     if top_view:
-        create_top_view(court_detector, detection_model)
+        create_top_view(court_detector, detection_model, ball_detector)
 
     # Save landmarks in csv files
     df = None
