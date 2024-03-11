@@ -511,12 +511,18 @@ def video_process(video_path, show_video=False, include_video=True,
     print(f'Last frame distance player 1 : {last_frame_distance_p1} m')
     print(f'Last frame distance player 2 : {last_frame_distance_p2} m')
 
+    stroke_counts = {}
+    for stroke_type in prediction_list:
+        stroke_counts[stroke_type] = stroke_counts.get(stroke_type, 0) + 1
+
+    # Create the dictionary with distances and stroke counts
     dico = {
         'distance': {
             'last_frame_distance_player1': last_frame_distance_p1,
             'last_frame_distance_player2': last_frame_distance_p2
         },
-        'stroke': prediction_list
+        'stroke': prediction_list,
+        'stroke_counts': stroke_counts
     }
 
     print(dico)
@@ -524,7 +530,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
 def main():
     s = time.time()
-    result_json = video_process(video_path='/content/TennisProject/src/laaksomen-rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path='/content/TennisProject/src/video_crop_rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
 
