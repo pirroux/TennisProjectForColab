@@ -340,6 +340,9 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         cv2.putText(img, 'Distance: {:.2f} m'.format(player2_dists[frame_number] / 100),
                     (100, 150),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        #distance after last frame
+        last_frame_distance_player1 = player1_dists[-1] / 100
+        last_frame_distance_player2 = player2_dists[-1] / 100
 
         # display frame
         if show_video:
@@ -511,7 +514,8 @@ def main():
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
     print(all_strokes_rally)
-
+    print('Distance of last frame for Player 1: {:.2f} m'.format(last_frame_distance_player1))
+    print('Distance of last frame for Player 2: {:.2f} m'.format(last_frame_distance_player2))
 
 if __name__ == "__main__":
     main()
