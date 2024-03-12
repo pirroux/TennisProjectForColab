@@ -401,9 +401,10 @@ def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
                           cv2.VideoWriter_fourcc(*'mp4v'), fps, (v_width, v_height))
     # players and ball location on court
     smoothed_1, smoothed_2 = detection_model.calculate_feet_positions(court_detector)
-    ball_positions = ball_detector.calculate_ball_positions()
+    ball_positions = ball_detector.calculate_ball_positions()       ## ---------------------xav----------------------------------
+    ball_position_top_view = ball_detector.calculate_ball_position_top_view(court_detector)  #---------------------------------xav--------------------
 
-    for feet_pos_1, feet_pos_2, ball_pos in zip(smoothed_1, smoothed_2, ball_positions):
+    for feet_pos_1, feet_pos_2, ball_pos in zip(smoothed_1, smoothed_2, ball_position_top_view):
         frame = court.copy()
         frame = cv2.circle(frame, (int(feet_pos_1[0]), int(feet_pos_1[1])), 10, (255, 105, 180), 15)
         if feet_pos_2[0] is not None:
