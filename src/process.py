@@ -394,7 +394,7 @@ def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
     """
 
     court = court_detector.court_reference.court.copy()
-    court = cv2.line(court, *court_detector.court_reference.net, (255, 255, 255), thickness=20)
+    court = cv2.line(court, *court_detector.court_reference.net, (255, 255, 255), thickness=5)
     v_width, v_height = court.shape[::-1]
     court = cv2.cvtColor(court, cv2.COLOR_GRAY2BGR)
     out = cv2.VideoWriter('output/top_view.mp4',
@@ -557,7 +557,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
 def main():
     s = time.time()
-    result_json = video_process(video_path='/content/TennisProject/src/video_crop_rublev.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path='/content/TennisProject/src/arnaldi-alcaraz-25fps.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
 
