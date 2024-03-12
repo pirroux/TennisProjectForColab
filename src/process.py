@@ -273,8 +273,8 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     final_width = width * 2 if with_frame == 2 else width
 
     # Video writer
-    out = cv2.VideoWriter(os.path.join(output_folder, output_file + '.avi'),
-                          cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (final_width, height))
+    out = cv2.VideoWriter(os.path.join(output_folder, output_file + '.mp4'),
+                          cv2.VideoWriter_fourcc(*'mp4v'), fps, (final_width, height))
 
     # initialize frame counters
     frame_number = 0
