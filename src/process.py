@@ -267,10 +267,19 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     # Read videos file
     cap = cv2.VideoCapture(input_video)
 
+    # read the small minimap top_view video
+
+    small_video = cv2.VideoCapture('output/top_view.mp4')
+
     # videos properties
     fps, length, width, height = get_video_properties(cap)
 
     final_width = width * 2 if with_frame == 2 else width
+
+    # minimpap top_view properties (réduction des la dimension de la vidéo)
+    target_width=256
+    target_height= 540
+
 
     # Video writer
     out = cv2.VideoWriter(os.path.join(output_folder, output_file + '.mp4'),
@@ -285,9 +294,16 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         if not orig_frame % 100:
             print('')
         ret, img = cap.read()
+        ret_small, img_small = small_video.read()  # Lire le frame de la vidéo plus petite
 
         if not ret:
             break
+
+        if not ret_small:
+            break
+
+        resized_frame_small = cv2.resize(img_small, (target_width, target_height))
+
 
         # initialize frame for landmarks only
         img_no_frame = np.ones_like(img) * 255
@@ -310,6 +326,8 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
         if skeleton_df is not None:
             img, img_no_frame = mark_skeleton(skeleton_df, img, img_no_frame, frame_number)
 
+        # Superposition de la frame de la vidéo plus petite sur le frame de la vidéo principale
+        img[8:target_height+8, width-target_width-8:width-8] = resized_frame_small
 
         # Add stroke prediction
         for i in range(-10, 10):
@@ -370,17 +388,17 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     cv2.destroyAllWindows()
     return last_frame_distance_player1, last_frame_distance_player2
 
-def create_top_view(court_detector, detection_model, ball_detector):
+def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
     """
     Creates top view video of the gameplay
     """
 
     court = court_detector.court_reference.court.copy()
-    court = cv2.line(court, *court_detector.court_reference.net, 255, 5)
+    court = cv2.line(court, *court_detector.court_reference.net, (255, 255, 255), thickness=20)
     v_width, v_height = court.shape[::-1]
     court = cv2.cvtColor(court, cv2.COLOR_GRAY2BGR)
-    out = cv2.VideoWriter('output/top_view.avi',
-                          cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 30, (v_width, v_height))
+    out = cv2.VideoWriter('output/top_view.mp4',
+                          cv2.VideoWriter_fourcc(*'mp4v'), fps, (v_width, v_height))
     # players and ball location on court
     smoothed_1, smoothed_2 = detection_model.calculate_feet_positions(court_detector)
     ball_positions = ball_detector.calculate_ball_positions()
@@ -476,7 +494,7 @@ def video_process(video_path, show_video=False, include_video=True,
     detection_model.find_player_2_box()
 
     if top_view:
-        create_top_view(court_detector, detection_model, ball_detector)
+        create_top_view(court_detector, detection_model, ball_detector, fps=fps)
 
     # Save landmarks in csv files
     df = None
