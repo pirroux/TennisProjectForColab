@@ -277,8 +277,8 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     final_width = width * 2 if with_frame == 2 else width
 
     # minimpap top_view properties (réduction des la dimension de la vidéo)
-    target_width=256
-    target_height= 540
+    target_width=171
+    target_height= 360
 
 
     # Video writer
