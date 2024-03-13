@@ -550,7 +550,8 @@ def video_process(video_path, show_video=False, include_video=True,
         'stroke': prediction_list,
         'stroke_counts': stroke_counts,
         'court_detection_time': round(court_detection_time, 1),
-        'court_accuracy': round(court_accuracy, 1)
+        'court_accuracy': round(court_accuracy, 1),
+        'total_frames_analyzed': length
     }
 
     print(dico)
@@ -560,7 +561,9 @@ def main(video_path):
     s = time.time()
     result_json = video_process(video_path=video_path, show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
-    print(f'Total computation time : {time.time() - s} seconds')
+    computation_time =  time.time() - s
+    print(f'Total computation time : {computation_time} seconds')
+    result_json['Total computation time (s)'] = computation_time
     return result_json
 
 if __name__ == "__main__":
