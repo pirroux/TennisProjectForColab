@@ -42,7 +42,7 @@ async def analyse_video(file: UploadFile = File(...)):
 
     heatmap_path = 'heatmap.jpg'
     graph_path = 'graph_video.jpg'
-    video_output_path = 'output/output.avi'
+    video_output_path = 'output/output.mp4'
 
     with open(video_output_path, 'rb') as file:
         video = base64.b64encode(file.read()).decode('utf-8')
