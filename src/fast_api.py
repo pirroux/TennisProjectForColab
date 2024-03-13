@@ -40,7 +40,7 @@ async def analyse_video(file: UploadFile = File(...)):
     #launchin main python file from api
     result_json = main(video_name)
 
-    heatmap_path = 'heatmap.jpg'
+    heatmap_path = 'Heatmap.jpg'
     graph_path = 'graph_video.jpg'
     video_output_path = 'output/output.mp4'
 
