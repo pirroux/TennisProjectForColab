@@ -554,7 +554,6 @@ def video_process(video_path, show_video=False, include_video=True,
     }
 
     print(dico)
-    print (ball_detector.calculate_ball_positions())
     return dico
 
 def main(video_path):
