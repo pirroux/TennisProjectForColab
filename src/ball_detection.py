@@ -166,7 +166,7 @@ class BallDetector:
         plt.ylabel('Y-Index Position')
         plt.title('Ball and Players Y-Index Positions Over Frames')
         plt.legend()
-        plt.show()
+        plt.savefig('graph_video.jpg')
 
 
 if __name__ == "__main__":

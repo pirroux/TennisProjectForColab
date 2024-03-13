@@ -27,7 +27,7 @@ def predict(minimap=0, bounce=0, input_video_name=None, ouput_video_name=None):
 
 
 @app.post("/savefile")
-async def convert_video_to_bw_frame(file: UploadFile = File(...)):
+async def analyse_video(file: UploadFile = File(...)):
 
     #save the file in video input directory
     video_name = f"{uuid.uuid4()}.mp4"
@@ -40,8 +40,18 @@ async def convert_video_to_bw_frame(file: UploadFile = File(...)):
     #launchin main python file from api
     result_json = main(video_name)
 
+    heatmap_path = 'heatmap.jpg'
+    graph_path = 'graph_video.jpg'
     video_output_path = 'output/output.avi'
+
     with open(video_output_path, 'rb') as file:
         video = base64.b64encode(file.read()).decode('utf-8')
+
+    with open(heatmap_path, 'rb') as heatmap_file:
+        heatmap = base64.b64encode(heatmap_file.read()).decode('utf-8')
+
+    with open(graph_path, 'rb') as graph_file:
+        graph = base64.b64encode(graph_file.read()).decode('utf-8')
     # return the main json response
-    return {'video': video, 'result_json': result_json}
+    return {'video': video, 'result_json': result_json, 'heatmap': heatmap, 'graph': graph}
+ 
