@@ -51,7 +51,7 @@ class BallDetector:
     def __init__(self, model_saved_state, out_channels=2):
         # Construct absolute path to the weights file
         script_directory = os.path.dirname(os.path.abspath(__file__))
-        weights_path = os.path.join(script_directory, '..', 'saved states', model_saved_state)
+        weights_path = os.path.join(script_directory, model_saved_state)
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # Load TrackNet model weights
@@ -182,7 +182,7 @@ class BallDetector:
         plt.ylabel('Y-Index Position')
         plt.title('Ball and Players Y-Index Positions Over Frames')
         plt.legend()
-        plt.show()
+        plt.savefig('graph_video.jpg')
 
 
 if __name__ == "__main__":

@@ -441,7 +441,7 @@ def video_process(video_path, show_video=False, include_video=True,
     detection_model = DetectionModel(dtype=dtype)
     pose_extractor = PoseExtractor(person_num=1, box=stickman_box, dtype=dtype) if stickman else None
     stroke_recognition = ActionRecognition('storke_classifier_weights.pth')
-    ball_detector = BallDetector('/content/TennisProject/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
+    ball_detector = BallDetector('saved states/tracknet_weights_2_classes.pth', out_channels=2)
 
     # Load videos from videos path
     video = cv2.VideoCapture(video_path)
@@ -554,14 +554,15 @@ def video_process(video_path, show_video=False, include_video=True,
     }
 
     print(dico)
+    print (ball_detector.calculate_ball_positions())
     return dico
 
-def main():
+def main(video_path):
     s = time.time()
-    result_json = video_process(video_path='/content/TennisProject/src/arnaldi-alcaraz-25fps.mp4', show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path=video_path, show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     print(f'Total computation time : {time.time() - s} seconds')
-
+    return result_json
 
 if __name__ == "__main__":
     main()
