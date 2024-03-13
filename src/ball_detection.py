@@ -146,6 +146,22 @@ class BallDetector:
     def calculate_ball_positions(self):
         return self.xy_coordinates
 
+    #---------------------------------------------------------xav--------------------------------------------------
+    def calculate_ball_position_top_view(self, court_detector):
+        inv_mats = court_detector.game_warp_matrix
+        xy_coordinates_top_view = []
+        for i, pos in enumerate(self.xy_coordinates):
+            if pos[0]==None:
+                ball_pos = np.array([100.25, 100.89]).reshape((1, 1, 2))
+            else:
+                ball_pos = np.array([pos[0], pos[1]]).reshape((1, 1, 2))
+            print(ball_pos)     ## -------------------------xav-----------------------------
+            ball_court_pos = cv2.perspectiveTransform(ball_pos, inv_mats[i]).reshape(-1)
+            xy_coordinates_top_view.append(ball_court_pos)
+        return xy_coordinates_top_view
+    #---------------------------------------------------------fin xav----------------------------------------------
+
+
     def show_y_graph(self, player_1_boxes, player_2_boxes):
 
         player_1_centers = np.array([center_of_box(box) for box in player_1_boxes])
