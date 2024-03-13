@@ -69,7 +69,7 @@ class Statistics:
 
         plt.setp(ax, xticks=[], yticks=[])
         # show
-        plt.show()
+        plt.savefig('heatmap.jpg')
 
     def get_players_dists(self):
         """
