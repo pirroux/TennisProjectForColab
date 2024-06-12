@@ -54,4 +54,3 @@ async def analyse_video(file: UploadFile = File(...)):
         graph = base64.b64encode(graph_file.read()).decode('utf-8')
     # return the main json response
     return {'video': video, 'result_json': result_json, 'heatmap': heatmap, 'graph': graph}
- 
