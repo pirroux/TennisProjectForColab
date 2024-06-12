@@ -6,3 +6,4 @@
 /report/
 /dataset/
 *.pth
+.DS_Store
