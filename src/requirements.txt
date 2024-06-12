@@ -9,3 +9,4 @@ scikit-image
 opencv_python
 opencv-python-headless
 filterpy
+fastapi uvicorn
