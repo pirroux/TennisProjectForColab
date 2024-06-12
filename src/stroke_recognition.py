@@ -128,11 +128,11 @@ class ActionRecognition:
             self.frames_features_seq = None
         return probs, self.strokes_label[np.argmax(probs)]
 
-    def predict_stroke(self, frame, player_1_box):
+    def predict_stroke(self, frame, player_2_box):
         """
         Predict the stroke for each frame
         """
-        box_center = center_of_box(player_1_box)
+        box_center = center_of_box(player_2_box)
         patch = frame[int(box_center[1] - self.box_margin): int(box_center[1] + self.box_margin),
                 int(box_center[0] - self.box_margin): int(box_center[0] + self.box_margin)].copy()
         patch = imutils.resize(patch, 299)

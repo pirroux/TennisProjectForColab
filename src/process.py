@@ -1,5 +1,9 @@
 import os
 import time
+import sys
+
+# Add the project root to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import cv2
 import numpy as np
@@ -10,15 +14,14 @@ from scipy.signal import find_peaks
 import sys
 sys.path.append('/content/TennisProject/src')
 
-from detection import DetectionModel, center_of_box
-from pose import PoseExtractor
-from smooth import Smooth
-from ball_detection import BallDetector
-from my_statistics import Statistics
-from stroke_recognition import ActionRecognition
-from utils import get_video_properties, get_dtype, get_stickman_line_connection
-from court_detection import CourtDetector
-import matplotlib.pyplot as plt
+from src.detection import DetectionModel, center_of_box
+from src.pose import PoseExtractor
+from src.smooth import Smooth
+from src.ball_detection import BallDetector
+from src.my_statistics import Statistics
+from src.stroke_recognition import ActionRecognition
+from src.utils import get_video_properties, get_dtype, get_stickman_line_connection
+from src.court_detection import CourtDetector
 
 
 
@@ -559,7 +562,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
 def main(video_path):
     s = time.time()
-    result_json = video_process(video_path=video_path, show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path="extract_video.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     computation_time =  time.time() - s
     print(f'Total computation time : {computation_time} seconds')
