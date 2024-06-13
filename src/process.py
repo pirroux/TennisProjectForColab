@@ -570,4 +570,5 @@ def main(video_path):
     return result_json
 
 if __name__ == "__main__":
-    main()
+    video_path = "extract_video.mp4"
+    main(video_path)
