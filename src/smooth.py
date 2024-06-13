@@ -50,7 +50,8 @@ class Smooth:
             # (we remove the slots where we can't be sure the data is right)
             self.df_smooth = df.mask(mask)
 
-        print('Smoothing completed')
+        #print('Smoothing completed')
+        print('\n')
         return self.df_smooth
 
     def _swap_sides(self, df):

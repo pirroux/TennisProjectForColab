@@ -83,8 +83,8 @@ class Statistics:
         heatmap[:, :, 1:] = 0
 
         self.display_heatmap(heatmap, self.court_tracker.court_reference.court, cmap=None, title='Players_path')
-        print('Top player distance is: {:.2f} m'.format(top_dist / 100))
-        print('Bottom player distance is: {:.2f} m'.format(bottom_dist / 100))
+        #print('Top player distance is: {:.2f} m'.format(top_dist / 100))
+        #print('Bottom player distance is: {:.2f} m'.format(bottom_dist / 100))
 
         self.top_dists_array = top_dists_array
         self.bottom_dists_array = bottom_dists_array

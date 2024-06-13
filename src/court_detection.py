@@ -67,7 +67,7 @@ class CourtDetector:
         court_accuracy = self._get_court_accuracy(0)
         if court_accuracy > self.success_accuracy and self.court_score > self.success_score:
             self.success_flag = True
-        print('Court accuracy = %.2f' % court_accuracy)
+        #print('Court accuracy = %.2f' % court_accuracy)
         # Find important lines location on frame
         self.find_lines_location()
         '''game_warped = cv2.warpPerspective(self.frame, self.game_warp_matrix,
@@ -261,8 +261,8 @@ class CourtDetector:
             cv2.imshow('court', court)
             if cv2.waitKey(0) & 0xff == 27:
                 cv2.destroyAllWindows()
-        print(f'Score = {max_score}')
-        print(f'Combinations tested = {k}')
+        #print(f'Score = {max_score}')
+        #print(f'Combinations tested = {k}')
 
         return max_mat, max_inv_mat, max_score
 

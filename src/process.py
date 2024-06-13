@@ -56,7 +56,7 @@ def get_stroke_predictions(video_path, stroke_recognition, strokes_frames, playe
         predictions[frame_num] = {'probs': probs, 'stroke': stroke}
         predicted_strokes.append(stroke)
     cap.release()
-    print(predicted_strokes)
+    #print(predicted_strokes)
     return predictions, predicted_strokes
 
 
@@ -293,7 +293,8 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
     orig_frame = 0
     while True:
         orig_frame += 1
-        print('Creating new videos frame %d/%d  ' % (orig_frame, length), '\r', end='')
+        #print('Creating new videos frame %d/%d  ' % (orig_frame, length), '\r', end='')
+        print('\n')
         if not orig_frame % 100:
             print('')
         ret, img = cap.read()
@@ -384,8 +385,9 @@ def add_data_to_video(input_video, court_detector, players_detector, ball_detect
             final_frame = np.concatenate([img, img_no_frame], 1)
         out.write(final_frame)
         frame_number += 1
-    print('Creating new video frames %d/%d  ' % (length, length), '\n', end='')
-    print(f'New videos created, file name - {output_file}.avi')
+    #print('Creating new video frames %d/%d  ' % (length, length), '\n', end='')
+    #print(f'New videos created, file name - {output_file}.avi')
+    print('\n')
     cap.release()
     out.release()
     cv2.destroyAllWindows()
@@ -466,11 +468,12 @@ def video_process(video_path, show_video=False, include_video=True,
 
         if ret:
             if frame_i == 1:
-                court_detector.detect(frame)
-                print(f'Court detection {"Success" if court_detector.success_flag else "Failed"}')
-                court_detection_time = time.time() - start_time
-                print(f'Time to detect court :  {court_detection_time} seconds')
                 start_time = time.time()
+                court_detector.detect(frame)
+                court_detection_time = time.time() - start_time
+                #print(f'Court detection time :  {court_detection_time:.1f} seconds')
+
+                #print('Court detection accuracy = %.1f' % court_accuracy)
 
             court_detector.track_court(frame)
 
@@ -490,8 +493,8 @@ def video_process(video_path, show_video=False, include_video=True,
                 print('')
         else:
             break
-    print('Processing frame %d/%d  FPS %04f' % (length, length, length / total_time), '\n', end='')
-    print('Processing completed')
+    #print('Processing frame %d/%d  FPS %04f' % (length, length, length / total_time), '\n', end='')
+    #print('Processing completed')
     video.release()
     cv2.destroyAllWindows()
 
@@ -535,12 +538,20 @@ def video_process(video_path, show_video=False, include_video=True,
                       show_video=show_video, with_frame=1, output_folder=output_folder, output_file=output_file,
                       p1=player_1_strokes_indices, p2=player_2_strokes_indices, f_x=f2_x, f_y=f2_y)
     ball_detector.show_y_graph(detection_model.player_1_boxes, detection_model.player_2_boxes)
-    print(f'Last frame distance player 1 : {last_frame_distance_p1} m')
-    print(f'Last frame distance player 2 : {last_frame_distance_p2} m')
+    #print(f'Last frame distance player 1 : {last_frame_distance_p1:.1f} m')
+    #print(f'Last frame distance player 2 : {last_frame_distance_p2:.1f} m')
+
+# Calculate stroke counts
 
     stroke_counts = {}
     for stroke_type in prediction_list:
         stroke_counts[stroke_type] = stroke_counts.get(stroke_type, 0) + 1
+
+# Calculate percentages
+    total_strokes = len(prediction_list)
+    percentages = {stroke_type: (count / total_strokes) * 100 for stroke_type, count in stroke_counts.items()}
+
+# Calculate court accuracy
 
     court_accuracy = court_detector._get_court_accuracy()
 
@@ -550,14 +561,26 @@ def video_process(video_path, show_video=False, include_video=True,
             'last_frame_distance_player1': round(last_frame_distance_p1, 1),
             'last_frame_distance_player2': round(last_frame_distance_p2, 1)
         },
-        'stroke': prediction_list,
+        'stroke_sequence': prediction_list,
         'stroke_counts': stroke_counts,
         'court_detection_time': round(court_detection_time, 1),
         'court_accuracy': round(court_accuracy, 1),
         'total_frames_analyzed': length
     }
 
-    print(dico)
+    print('MODEL METRICS')
+    print(f'Court detection time :  {court_detection_time:.1f} seconds')
+    print(f'Court detection accuracy = {court_accuracy:.1f}%')
+    print(f'{length} frames analyzed by the model')
+    print('\n')
+    print('GAME STATISTICS')
+    print(f'Last frame distance player 1 : {last_frame_distance_p1:.1f} m')
+    print(f'Last frame distance player 2 : {last_frame_distance_p2:.1f} m')
+    print("Shot sequence by player 1:", dico['stroke_sequence'])
+    # Print percentages of each stroke type
+    print('\nPERCENTAGE OF STROKE TYPES FOR PLAYER 1')
+    for stroke_type, percentage in percentages.items():
+        print(f'{stroke_type}: {percentage:.1f}%')
     return dico
 
 def main(video_path):
@@ -565,7 +588,7 @@ def main(video_path):
     result_json = video_process(video_path="extract_video.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     computation_time =  time.time() - s
-    print(f'Total computation time : {computation_time} seconds')
+    #print(f'Total computation time : {computation_time} seconds')
     result_json['Total computation time (s)'] = computation_time
     return result_json
 
