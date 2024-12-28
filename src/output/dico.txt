@@ -10,7 +10,7 @@
     "stroke_counts": {
         "Backhand": 2
     },
-    "court_detection_time": 114.7,
+    "court_detection_time": 116.1,
     "court_accuracy": 93.1,
     "total_frames_analyzed": 107
 }
