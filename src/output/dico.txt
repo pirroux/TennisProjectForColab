@@ -1,0 +1,16 @@
+{
+    "distance": {
+        "last_frame_distance_player1": 13.4,
+        "last_frame_distance_player2": 9.6
+    },
+    "stroke_sequence": [
+        "Backhand",
+        "Backhand"
+    ],
+    "stroke_counts": {
+        "Backhand": 2
+    },
+    "court_detection_time": 114.7,
+    "court_accuracy": 93.1,
+    "total_frames_analyzed": 107
+}

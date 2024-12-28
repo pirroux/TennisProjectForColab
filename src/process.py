@@ -1,6 +1,7 @@
 import os
 import time
 import sys
+import json
 
 # Add the project root to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -421,9 +422,9 @@ def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
     cv2.destroyAllWindows()
 
 def video_process(video_path, show_video=False, include_video=True,
-                  stickman=True, stickman_box=True, court=True,
+                  stickman=True, stickman_box=True, court=False,
                   output_file='output', output_folder='output',
-                  smoothing=True, top_view=True):
+                  smoothing=True, top_view=False):
     """
     Takes videos of one person as input, and calculate the body pose and face landmarks, and saves them as csv files.
     Also, output a result videos with the keypoints marked.
@@ -581,11 +582,20 @@ def video_process(video_path, show_video=False, include_video=True,
     print('\nPERCENTAGE OF STROKE TYPES FOR PLAYER 1')
     for stroke_type, percentage in percentages.items():
         print(f'{stroke_type}: {percentage:.1f}%')
+
+    # Ensure the output folder exists
+    output_folder = 'output'
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Write the dictionary to a .txt file in the output folder
+    with open(os.path.join(output_folder, 'dico.txt'), 'w') as file:
+        json.dump(dico, file, indent=4)  # Writing JSON data in a human-readable format
     return dico
 
 def main(video_path):
     s = time.time()
-    result_json = video_process(video_path="extract_video.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path="video_input6.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     computation_time =  time.time() - s
     #print(f'Total computation time : {computation_time} seconds')
@@ -593,5 +603,5 @@ def main(video_path):
     return result_json
 
 if __name__ == "__main__":
-    video_path = "extract_video.mp4"
+    video_path = "video_input6.mp4"
     main(video_path)
