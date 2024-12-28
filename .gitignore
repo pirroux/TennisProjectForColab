@@ -1,9 +1,3 @@
-/images/
-/videos/
-/.idea/
-/src/output/
-/*.docx
-/report/
-/dataset/
+# Exclude .mp4 and .pth files
+*.mp4
 *.pth
-.DS_Store
