@@ -595,7 +595,7 @@ def video_process(video_path, show_video=False, include_video=True,
 
 def main(video_path):
     s = time.time()
-    result_json = video_process(video_path="video_input6.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
+    result_json = video_process(video_path="video_input2.mp4", show_video=False, stickman=True, stickman_box=False, smoothing=True,
                   court=True, top_view=True)
     computation_time =  time.time() - s
     #print(f'Total computation time : {computation_time} seconds')
@@ -603,5 +603,5 @@ def main(video_path):
     return result_json
 
 if __name__ == "__main__":
-    video_path = "video_input6.mp4"
+    video_path = "video_input2.mp4"
     main(video_path)
