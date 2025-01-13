@@ -1,0 +1,15 @@
+
+MODEL METRICS
+Court detection time :  72.2 seconds
+Court detection accuracy = 96.2%
+929 frames analyzed by the model
+
+
+GAME STATISTICS
+Last frame distance player 1 : 51.3 m
+Last frame distance player 2 : 70.5 m
+Shot sequence by player 1: ['Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand']
+
+PERCENTAGE OF STROKE TYPES FOR PLAYER 1
+Backhand: 100.0%
+{'distance': {'last_frame_distance_player1': 51.3, 'last_frame_distance_player2': 70.5}, 'stroke_sequence': ['Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand', 'Backhand'], 'stroke_counts': {'Backhand': 7}, 'court_detection_time': 72.2, 'court_accuracy': 96.2, 'total_frames_analyzed': 929, 'Total computation time (s)': 796.2941393852234}
