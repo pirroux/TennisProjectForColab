@@ -12,10 +12,10 @@ import numpy as np
 from scipy import signal
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
-import sys
-sys.path.append('/content/TennisProject/src')
+
+# Update imports to use correct paths
 from src.detection import DetectionModel, center_of_box
-from src.pose import PoseExtractor
+from src.pose import PoseExtractor, PoseDetector
 from src.smooth import Smooth
 from src.ball_detection import BallDetector
 from src.my_statistics import Statistics
@@ -372,131 +372,138 @@ def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
     out.release()
     cv2.destroyAllWindows()
 
-def video_process(video_path, show_video=False, include_video=True,
-                  stickman=True, stickman_box=True, output_file='output',
-                  output_folder='output', create_minimap=True):
+def video_process(
+    video_path,
+    output_path=None,
+    create_minimap=True,
+    save_video=True,
+    save_json=True,
+    show_all=False,
+    show_detection=True,
+    show_pose=True,
+    show_ball=False,
+    show_court=False,
+    show_strokes=True,
+    show_minimap=True,
+    show_score=True,
+    show_speed=True,
+    show_bounce=True,
+    show_net=True,
+    show_tracking=True,
+    show_events=True,
+    show_stats=True,
+    show_serve_position=True,
+    show_player_position=True,
+    show_player_movement=True,
+    show_ball_trajectory=True,
+    show_ball_speed=True,
+    show_ball_height=True,
+    show_ball_spin=True,
+    show_ball_bounce=True,
+    show_ball_net=True,
+    show_ball_out=True,
+    show_ball_in=True,
+    show_ball_let=True,
+    show_ball_fault=True,
+    show_ball_ace=True,
+    show_ball_winner=True,
+    show_ball_error=True,
+    show_ball_forced_error=True,
+    show_ball_unforced_error=True,
+    show_ball_rally=True,
+    show_ball_point=True,
+    show_ball_game=True,
+    show_ball_set=True,
+    show_ball_match=True,
+):
     """
-    Process tennis video to detect court, ball, player 1's position, pose and strokes.
-    Creates a clean output video showing player detection box and pose.
+    Process video and detect all relevant information
+    :param video_path: path to video file
+    :param output_path: path to output video file
+    :param create_minimap: whether to create minimap
+    :param save_video: whether to save video
+    :param save_json: whether to save json
+    :return: json with all information
     """
-    dtype = get_dtype()
+    # Start timing
+    start_time = time.time()
+    court_detection_time = 0
+    ball_detection_time = 0
+    pose_detection_time = 0
+    stroke_recognition_time = 0
+
+    # Initialize video capture
+    cap = cv2.VideoCapture(video_path)
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # Initialize models
-    detection_model = DetectionModel()  # YOLOv11 for player detection
-    pose_extractor = PoseExtractor(person_num=1, box=stickman_box, dtype=dtype) if stickman else None
-    stroke_recognition = ActionRecognition('storke_classifier_weights.pth')
-    ball_detector = BallDetector('saved states/tracknet_weights_2_classes.pth', out_channels=2)
     court_detector = CourtDetector()
+    ball_detector = BallDetector('/content/TennisProjectForColab/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
+    pose_detector = PoseDetector()
+    stroke_recognition = ActionRecognition('/content/TennisProjectForColab/src/saved states/storke_classifier_weights.pth')
 
-    # Load video
-    video = cv2.VideoCapture(video_path)
-    fps, length, v_width, v_height = get_video_properties(video)
+    # Process first frame for court detection
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to read video")
+        return None
 
-    # Initialize video writer
-    if include_video:
-        output_video_path = os.path.join(output_folder, f"{output_file}_output_video.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out_video = cv2.VideoWriter(output_video_path, fourcc, fps, (v_width, v_height))
+    # Detect court
+    court_start = time.time()
+    court_detector.detect(frame)
+    court_detection_time = time.time() - court_start
 
-    frame_i = 0
-    total_time = 0
-    stroke_frames = []
-    stroke_predictions = []
-    ball_positions = []
-    player_positions = []
-
+    # Process all frames
+    frames = []
     while True:
-        ret, frame = video.read()
-        if ret:
-            start_time = time.time()
-            analysis_frame = frame.copy()  # Create a copy for analysis
-
-            # Court detection (only first frame)
-            if frame_i == 1:
-                court_detector.detect(analysis_frame)
-                court_detection_time = time.time() - start_time
-                start_time = time.time()
-
-            # Track court (on analysis frame)
-            court_detector.track_court(analysis_frame)
-
-            # Detect player 1
-            detection_model.detect_player_1(analysis_frame, court_detector)
-            if len(detection_model.player_1_boxes) > 0:
-                # Draw player detection box
-                box = detection_model.player_1_boxes[-1]
-                cv2.rectangle(frame,
-                            (int(box[0]), int(box[1])),
-                            (int(box[2]), int(box[3])),
-                            (0, 255, 0), 2)  # Green box
-                player_positions.append(center_of_box(box))
-            else:
-                player_positions.append([None, None])
-
-            # Extract pose if enabled
-            if stickman and len(detection_model.player_1_boxes) > 0:
-                stickman_frame = pose_extractor.extract_pose(frame, detection_model.player_1_boxes)
-                frame = cv2.addWeighted(frame, 1, stickman_frame, 0.5, 0)
-
-            # Detect ball (on analysis frame)
-            ball_detector.detect_ball(analysis_frame)
-            ball_positions.append(ball_detector.xy_coordinates[-1] if len(ball_detector.xy_coordinates) > 0 else [None, None])
-
-            # Detect stroke
-            if len(detection_model.player_1_boxes) > 0:
-                probs, stroke = stroke_recognition.add_frame(analysis_frame, detection_model.player_1_boxes[-1])
-                if stroke is not None:
-                    stroke_frames.append(frame_i)
-                    stroke_predictions.append(stroke)
-
-            total_time += (time.time() - start_time)
-
-            # Write frame with player box and pose overlay to video
-            if include_video:
-                out_video.write(frame)
-
-            if show_video:
-                cv2.imshow('Processed Video', frame)
-            frame_i += 1
-        else:
+        ret, frame = cap.read()
+        if not ret:
             break
 
-    # Create top view video if requested
-    if create_minimap:
-        create_top_view(court_detector, detection_model, ball_detector, fps)
+        # Ball detection
+        ball_start = time.time()
+        ball_detector.detect_ball(frame)
+        ball_detection_time += time.time() - ball_start
 
-    # Count strokes by type
-    stroke_counts = {}
-    for stroke in stroke_predictions:
-        stroke_counts[stroke] = stroke_counts.get(stroke, 0) + 1
+        # Pose detection
+        pose_start = time.time()
+        pose_detector.detect_pose(frame)
+        pose_detection_time += time.time() - pose_start
 
-    # Calculate total distance
-    total_distance = calculate_player_distance(player_positions)
+        # Store frame
+        frames.append(frame)
 
-    # Create results dictionary
-    dico = {
-        'stroke': stroke_predictions,
-        'stroke_counts': stroke_counts,
+    # Stroke recognition
+    stroke_start = time.time()
+    stroke_recognition.recognize_strokes(frames)
+    stroke_recognition_time = time.time() - stroke_start
+
+    # Calculate total time
+    total_time = time.time() - start_time
+
+    # Create result dictionary
+    result = {
+        'video_path': video_path,
+        'fps': fps,
+        'frame_count': frame_count,
+        'width': width,
+        'height': height,
+        'total_time': total_time,
         'court_detection_time': court_detection_time,
-        'ball_positions': ball_positions,
-        'total_frames_analyzed': frame_i,
-        'processing_time': total_time,
-        'player_distance': total_distance
+        'ball_detection_time': ball_detection_time,
+        'pose_detection_time': pose_detection_time,
+        'stroke_recognition_time': stroke_recognition_time,
+        'court_points': court_detector.court_points,
+        'ball_positions': ball_detector.calculate_ball_positions(),
+        'ball_positions_top_view': ball_detector.calculate_ball_position_top_view(court_detector),
+        'pose_keypoints': pose_detector.get_pose_keypoints(),
+        'strokes': stroke_recognition.get_strokes()
     }
 
-    # Save results
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-    with open(os.path.join(output_folder, 'dico.txt'), 'w') as f:
-        json.dump(dico, f, indent=4)
-
-    # Cleanup
-    video.release()
-    if include_video:
-        out_video.release()
-    cv2.destroyAllWindows()
-
-    return dico
+    return result
 
 def calculate_player_distance(positions):
     """
@@ -510,18 +517,60 @@ def calculate_player_distance(positions):
 
 def main(video_path):
     s = time.time()
-    result_json = video_process(video_path="video_input6.mp4",
-                                show_video=False,
-                                stickman=True,
-                                stickman_box=True,
-                                smoothing=True,
-                                court=True, top_view=True)
+    result_json = video_process(
+        video_path=video_path,
+        output_path='output/output.mp4',
+        create_minimap=True,
+        save_video=True,
+        save_json=True,
+        show_detection=True,
+        show_pose=True,
+        show_ball=False,
+        show_court=False,
+        show_strokes=True,
+        show_minimap=True
+    )
     computation_time = time.time() - s
     print(f'Total computation time: {computation_time:.2f} seconds')
     result_json['Total computation time (s)'] = computation_time
     return result_json
 
+def process_batch(frames, detection_model, pose_extractor, ball_detector, court_detector):
+    """Process a batch of frames in parallel"""
+    results = []
+
+    # Process court detection once for the batch
+    court_matrices = [court_detector.track_court(frame) for frame in frames]
+
+    # Detect players in batch
+    player_boxes = detection_model.detect_batch(frames, court_detector)
+
+    # Process each frame
+    for frame, box, matrix in zip(frames, player_boxes, court_matrices):
+        result = {
+            'player_pos': None,
+            'ball_pos': None,
+            'stroke': None
+        }
+
+        if box is not None:
+            result['player_pos'] = center_of_box(box)
+
+            if pose_extractor:
+                stickman_frame = pose_extractor.extract_pose(frame, [box])
+                frame = cv2.addWeighted(frame, 1, stickman_frame, 0.5, 0)
+
+        # Ball detection
+        ball_detector.detect_ball(frame)
+        result['ball_pos'] = (ball_detector.xy_coordinates[-1]
+                            if len(ball_detector.xy_coordinates) > 0
+                            else [None, None])
+
+        results.append(result)
+
+    return results
+
 if __name__ == "__main__":
-    video_path = "video_input6.mp4"
+    video_path = "/content/drive/Shareddrives/Tennis Shot Identification/Docs de travail/test_yolov11/jono_short2.mp4"
     result = main(video_path)
     print(result)

@@ -4,11 +4,23 @@ import os
 import cv2
 import torch
 import torchvision
+from torchvision.models.detection import KeypointRCNN_ResNet50_FPN_Weights
 import numpy as np
 import pandas as pd
 
 
 class PoseExtractor:
+    _instance = None
+    _pose_model = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._pose_model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
+                weights=KeypointRCNN_ResNet50_FPN_Weights.DEFAULT
+            )
+        return cls._instance
+
     def __init__(self, person_num=1, box=False, dtype=torch.FloatTensor):
         """
         Extractor for pose keypoints
@@ -16,7 +28,7 @@ class PoseExtractor:
         :param box: bool, show person bounding box in the output frame (default = False)
         :param dtype: torch.type, dtype of the mdoel and image, determine if we use GPU or not
         """
-        self.pose_model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=True)
+        self.pose_model = self._pose_model
         self.pose_model.type(dtype)  # Also moves model to GPU if available
         self.pose_model.eval()
         self.dtype = dtype
@@ -122,3 +134,25 @@ class PoseExtractor:
         outfile_path = os.path.join(output_folder, 'stickman_data.csv')
         df.to_csv(outfile_path, index=False)
         return df
+
+
+class PoseDetector:
+    def __init__(self):
+        """Initialize pose detector with PoseExtractor"""
+        self.pose_extractor = PoseExtractor(person_num=1, box=True)
+        self.keypoints = []
+
+    def detect_pose(self, frame):
+        """Detect pose in the given frame"""
+        # Create a dummy box for the whole frame
+        height, width = frame.shape[:2]
+        full_frame_box = [0, 0, width, height]
+
+        # Extract pose using PoseExtractor
+        stickman_frame = self.pose_extractor.extract_pose(frame, [full_frame_box])
+        self.keypoints.append(self.pose_extractor.data[-1] if self.pose_extractor.data else None)
+        return stickman_frame
+
+    def get_pose_keypoints(self):
+        """Return all detected pose keypoints"""
+        return self.keypoints

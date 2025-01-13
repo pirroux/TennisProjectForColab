@@ -9,7 +9,6 @@ from torch.optim import Adadelta
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from datasets import TrackNetDataset, get_dataloaders
 from trainer import plot_graph
-import tensorflow as tf
 import torch.nn.functional as F
 
 # Append custom path for imports
@@ -76,30 +75,11 @@ class BallTrackerNet(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         self._init_weights()
 
-    # def forward(self, x, testing=False):
-    #     batch_size = x.size(0)
-    #     features = self.encoder(x)
-    #     scores_map = self.decoder(features)
-    #     output = scores_map.reshape(batch_size, self.out_channels, -1)
-
-    #     if testing:
-    #         output = self.softmax(output)
-
-    #     return output
-
-    def forward(self, x, testing=False):
-        # Check if the input is a TensorFlow tensor and convert it to a PyTorch tensor
-        if isinstance(x, tf.Tensor):
-            x = torch.from_numpy(x.numpy())  # Convert TensorFlow tensor to PyTorch tensor
-
-        batch_size = x.size(0)  # Now `x` is a PyTorch tensor, you can use `.size()`
+    def forward(self, x):
+        batch_size = x.size(0)
         features = self.encoder(x)
         scores_map = self.decoder(features)
         output = scores_map.reshape(batch_size, self.out_channels, -1)
-
-        if testing:
-            output = self.softmax(output)
-
         return output
 
     def _init_weights(self):
@@ -115,13 +95,9 @@ class BallTrackerNet(nn.Module):
     def inference(self, frames: torch.Tensor):
         self.eval()
         with torch.no_grad():
-            if len(frames.shape) == 3:
-                frames = frames.unsqueeze(0)
-            if next(self.parameters()).is_cuda:
-                frames.cuda()
-
             # Forward pass
-            output = self(frames, True)
+            output = self(frames)
+            output = self.softmax(output)
             output = output.argmax(dim=1).detach().cpu().numpy()
             if self.out_channels == 2:
                 output *= 255

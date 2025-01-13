@@ -227,42 +227,73 @@ class DetectionModel:
 
     def calculate_feet_positions(self, court_detector):
         """
-        Calculate the feet position of both players using the inverse transformation of the court and the boxes
-        of both players
+        Calculate feet positions for both players in court coordinates
         """
-        inv_mats = court_detector.game_warp_matrix
+        # Initialize empty lists for positions
         positions_1 = []
-        positions_2 = []
-        # Bottom player feet locations
-        for i, box in enumerate(self.player_1_boxes):
-            feet_pos = np.array([(box[0] + (box[2] - box[0]) / 2).item(), box[3].item()]).reshape((1, 1, 2))
-            feet_court_pos = cv2.perspectiveTransform(feet_pos, inv_mats[i]).reshape(-1)
-            positions_1.append(feet_court_pos)
-        mask = []
-        # Top player feet locations
-        for i, box in enumerate(self.player_2_boxes):
-            if box[0] is not None:
-                feet_pos = np.array([(box[0] + (box[2] - box[0]) / 2), box[3]]).reshape((1, 1, 2))
-                feet_court_pos = cv2.perspectiveTransform(feet_pos, inv_mats[i]).reshape(-1)
-                positions_2.append(feet_court_pos)
-                mask.append(True)
-            elif len(positions_2) > 0:
-                positions_2.append(positions_2[-1])
-                mask.append(False)
-            else:
-                positions_2.append(np.array([0, 0]))
-                mask.append(False)
 
-        # Smooth both feet locations
+        # Convert each box to feet position
+        for box in self.player_1_boxes:
+            if box[0] is not None:
+                # Calculate feet position (center bottom of box)
+                feet_pos = np.array([box[0] + (box[2] - box[0]) / 2, box[3]])
+
+                # Transform to court coordinates if court detector is available
+                if court_detector is not None:
+                    feet_pos = cv2.perspectiveTransform(
+                        feet_pos.reshape(-1, 1, 2),
+                        court_detector.game_warp_matrix[-1]
+                    ).reshape(-1)
+
+                positions_1.append([feet_pos[0], feet_pos[1]])
+            else:
+                positions_1.append([None, None])
+
+        # Convert to numpy array
         positions_1 = np.array(positions_1)
-        smoothed_1 = np.zeros_like(positions_1)
-        smoothed_1[:, 0] = signal.savgol_filter(positions_1[:, 0], 7, 2)
-        smoothed_1[:, 1] = signal.savgol_filter(positions_1[:, 1], 7, 2)
-        positions_2 = np.array(positions_2)
-        smoothed_2 = np.zeros_like(positions_2)
-        smoothed_2[:, 0] = signal.savgol_filter(positions_2[:, 0], 7, 2)
-        smoothed_2[:, 1] = signal.savgol_filter(positions_2[:, 1], 7, 2)
-        smoothed_2[not mask, :] = [None, None]
+
+        # Only process if we have valid positions
+        if len(positions_1) > 0:
+            # Create arrays for smoothing
+            x_vals = []
+            y_vals = []
+            valid_indices = []
+
+            # Collect valid positions
+            for i, pos in enumerate(positions_1):
+                if pos[0] is not None and pos[1] is not None:
+                    x_vals.append(pos[0])
+                    y_vals.append(pos[1])
+                    valid_indices.append(i)
+
+            if len(valid_indices) > 0:
+                # Convert to numpy arrays
+                x_vals = np.array(x_vals)
+                y_vals = np.array(y_vals)
+
+                # Apply Savitzky-Golay filter if we have enough points
+                window_length = min(7, len(x_vals) if len(x_vals) % 2 == 1 else len(x_vals) - 1)
+                if window_length > 2:
+                    smoothed_x = signal.savgol_filter(x_vals, window_length, 2)
+                    smoothed_y = signal.savgol_filter(y_vals, window_length, 2)
+
+                    # Create output arrays
+                    smoothed_1 = np.array([[None, None]] * len(positions_1))
+
+                    # Fill in smoothed values
+                    for i, idx in enumerate(valid_indices):
+                        smoothed_1[idx] = [smoothed_x[i], smoothed_y[i]]
+                else:
+                    # If not enough points for smoothing, use original values
+                    smoothed_1 = positions_1
+            else:
+                smoothed_1 = positions_1
+        else:
+            smoothed_1 = positions_1
+
+        # Create empty array for player 2 (same length as player 1)
+        smoothed_2 = np.array([[None, None]] * len(smoothed_1))
+
         return smoothed_1, smoothed_2
 
 

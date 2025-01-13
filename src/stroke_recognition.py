@@ -4,6 +4,7 @@ import os
 import imutils
 import torch
 import torchvision
+from torchvision.models import Inception_V3_Weights
 import tensorflow as tf
 import numpy as np
 from torchvision import transforms
@@ -26,7 +27,9 @@ class Identity(nn.Module):
 class FeatureExtractor(nn.Module):
     def __init__(self):
         super().__init__()
-        self.feature_extractor = torchvision.models.inception_v3(pretrained=True)
+        self.feature_extractor = torchvision.models.inception_v3(
+            weights=Inception_V3_Weights.DEFAULT
+        )
         self.feature_extractor.fc = Identity()
 
     def forward(self, x):
@@ -71,33 +74,52 @@ class LSTM_model(nn.Module):
 
 
 class ActionRecognition:
-    """
-    Stroke recognition model
-    """
-    def __init__(self, model_saved_state, max_seq_len=55):
-        self.dtype = get_dtype()
-        # Set the device to MPS if available, otherwise CPU
-        self.device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-        self.feature_extractor = FeatureExtractor().to(self.device)  # Move model to the device
-        self.feature_extractor.eval()
-        self.feature_extractor.type(self.dtype)
-        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                              std=[0.229, 0.224, 0.225])
-        self.max_seq_len = max_seq_len
-        self.LSTM = LSTM_model(3, dtype=self.dtype).to(self.device)  # Move LSTM to device
-        # Load model's weights
+    _instance = None
+    _feature_extractor = None
+    _lstm = None
 
-        script_directory = os.path.dirname(os.path.abspath(__file__))
-        weights_path = os.path.join(script_directory, 'saved states', model_saved_state)
-        saved_state = torch.load(weights_path, map_location=self.device)
+    def __new__(cls, model_saved_state):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            # Initialize models only once
+            cls._feature_extractor = torchvision.models.inception_v3(
+                weights=Inception_V3_Weights.DEFAULT
+            )
+            cls._lstm = LSTM_model(3)
+            # Load weights with proper handling of numpy scalars
+            from torch.serialization import add_safe_globals
+            from numpy.core.multiarray import scalar
+            add_safe_globals([scalar])
+            try:
+                saved_state = torch.load(
+                    model_saved_state,
+                    map_location='cpu',
+                    weights_only=True
+                )
+            except Exception as e:
+                print("Attempting to load weights without weights_only...")
+                saved_state = torch.load(
+                    model_saved_state,
+                    map_location='cpu'
+                )
+            cls._lstm.load_state_dict(saved_state['model_state'])
+        return cls._instance
 
-        self.LSTM.load_state_dict(saved_state['model_state'])
-        self.LSTM.eval()
-        self.LSTM.type(self.dtype)
-        self.frames_features_seq = None
+    def __init__(self, model_saved_state):
+        """Initialize instance variables"""
+        self.feature_extractor = self._feature_extractor
+        self.LSTM = self._lstm
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
         self.box_margin = 150
+        self.frames_features_seq = None
+        self.max_seq_len = 90
+        self.strokes_label = ['forehand', 'backhand', 'service']
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
         self.softmax = nn.Softmax(dim=1)
-        self.strokes_label = ['Forehand', 'Backhand', 'Service/Smash']
 
     def add_frame(self, frame, player_box):
         """
