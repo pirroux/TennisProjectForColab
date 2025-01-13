@@ -385,45 +385,12 @@ def video_process(
     show_court=False,
     show_strokes=True,
     show_minimap=True,
-    show_score=True,
-    show_speed=True,
-    show_bounce=True,
-    show_net=True,
-    show_tracking=True,
-    show_events=True,
-    show_stats=True,
-    show_serve_position=True,
-    show_player_position=True,
-    show_player_movement=True,
-    show_ball_trajectory=True,
-    show_ball_speed=True,
-    show_ball_height=True,
-    show_ball_spin=True,
-    show_ball_bounce=True,
-    show_ball_net=True,
-    show_ball_out=True,
-    show_ball_in=True,
-    show_ball_let=True,
-    show_ball_fault=True,
-    show_ball_ace=True,
-    show_ball_winner=True,
-    show_ball_error=True,
-    show_ball_forced_error=True,
-    show_ball_unforced_error=True,
-    show_ball_rally=True,
-    show_ball_point=True,
-    show_ball_game=True,
-    show_ball_set=True,
-    show_ball_match=True,
+    batch_size=4,
+    court_detection_timeout=30,
+    **kwargs
 ):
     """
     Process video and detect all relevant information
-    :param video_path: path to video file
-    :param output_path: path to output video file
-    :param create_minimap: whether to create minimap
-    :param save_video: whether to save video
-    :param save_json: whether to save json
-    :return: json with all information
     """
     # Start timing
     start_time = time.time()
@@ -434,55 +401,148 @@ def video_process(
 
     # Initialize video capture
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print("Error: Could not open video file")
+        return None
+
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Initialize models
-    court_detector = CourtDetector()
-    ball_detector = BallDetector('/content/TennisProjectForColab/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
-    pose_detector = PoseDetector()
-    stroke_recognition = ActionRecognition('/content/TennisProjectForColab/src/saved states/storke_classifier_weights.pth')
+    print(f"Processing video with {frame_count} frames at {fps} FPS")
 
-    # Process first frame for court detection
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to read video")
+    # Initialize models with error handling
+    try:
+        print("Initializing models...")
+        court_detector = CourtDetector()
+        ball_detector = BallDetector('/content/TennisProjectForColab/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
+        pose_detector = PoseDetector()
+        stroke_recognition = ActionRecognition('/content/TennisProjectForColab/src/saved states/storke_classifier_weights.pth')
+        print("Models initialized successfully")
+    except Exception as e:
+        print(f"Error initializing models: {str(e)}")
+        cap.release()
         return None
 
-    # Detect court
-    court_start = time.time()
-    court_detector.detect(frame)
-    court_detection_time = time.time() - court_start
+    # Process first frame for court detection with timeout
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to read first frame")
+        cap.release()
+        return None
 
-    # Process all frames
-    frames = []
+    # Detect court with timeout
+    print("Detecting court...")
+    court_start = time.time()
+    court_detected = False
+    try:
+        court_detected = court_detector.detect(frame)
+        court_detection_time = time.time() - court_start
+        if court_detection_time > court_detection_timeout:
+            print(f"Court detection exceeded timeout of {court_detection_timeout} seconds")
+            cap.release()
+            return None
+        print(f"Court detection completed in {court_detection_time:.2f} seconds")
+    except Exception as e:
+        print(f"Error in court detection: {str(e)}")
+        court_detected = False
+
+    if not court_detected:
+        print("Court detection failed - proceeding without court detection")
+        # Initialize empty matrices for court detector
+        court_detector.court_warp_matrix = []
+        court_detector.game_warp_matrix = []
+
+    # Initialize result storage
+    ball_positions = []
+    pose_keypoints = []
+    stroke_frames = []
+
+    # Process frames in batches
+    frame_idx = 0
+    last_progress = 0
+    last_fps_check = time.time()
+    frames_since_last_check = 0
+
+    print("Starting frame processing...")
     while True:
-        ret, frame = cap.read()
-        if not ret:
+        batch_frames = []
+        batch_start = time.time()
+
+        # Read batch_size frames
+        for _ in range(batch_size):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            batch_frames.append(frame)
+            frame_idx += 1
+            frames_since_last_check += 1
+
+        if not batch_frames:
             break
 
-        # Ball detection
-        ball_start = time.time()
-        ball_detector.detect_ball(frame)
-        ball_detection_time += time.time() - ball_start
+        # Process batch
+        for frame in batch_frames:
+            try:
+                # Ball detection
+                ball_start = time.time()
+                ball_pos = ball_detector.detect_ball(frame)
+                if ball_pos is not None and isinstance(ball_pos, (list, np.ndarray)) and len(ball_pos) == 2:
+                    # Ensure ball_pos is a numpy array with shape (2,)
+                    ball_pos = np.array(ball_pos).flatten()[:2]
+                    if not np.any(np.isnan(ball_pos)):
+                        ball_positions.append(ball_pos.tolist())
+                    else:
+                        ball_positions.append([None, None])
+                else:
+                    ball_positions.append([None, None])
+                ball_detection_time += time.time() - ball_start
 
-        # Pose detection
-        pose_start = time.time()
-        pose_detector.detect_pose(frame)
-        pose_detection_time += time.time() - pose_start
+                # Pose detection (every other frame)
+                if frame_idx % 2 == 0:
+                    pose_start = time.time()
+                    keypoints = pose_detector.detect_pose(frame)
+                    if keypoints is not None:
+                        pose_keypoints.append(keypoints)
+                    pose_detection_time += time.time() - pose_start
 
-        # Store frame
-        frames.append(frame)
+                # Stroke recognition (every fourth frame)
+                if frame_idx % 4 == 0 and len(pose_keypoints) > 0:
+                    stroke_start = time.time()
+                    stroke = stroke_recognition.predict_stroke(frame, pose_keypoints[-1])
+                    if stroke is not None:
+                        stroke_frames.append(stroke)
+                    stroke_recognition_time += time.time() - stroke_start
 
-    # Stroke recognition
-    stroke_start = time.time()
-    stroke_recognition.recognize_strokes(frames)
-    stroke_recognition_time = time.time() - stroke_start
+            except Exception as e:
+                print(f"Error processing frame {frame_idx}: {str(e)}")
+                ball_positions.append([None, None])
+                continue
+
+        # Calculate and print FPS every second
+        current_time = time.time()
+        if current_time - last_fps_check >= 1.0:
+            fps = frames_since_last_check / (current_time - last_fps_check)
+            print(f"Current processing speed: {fps:.1f} FPS")
+            frames_since_last_check = 0
+            last_fps_check = current_time
+
+        # Print progress every 5%
+        progress = (frame_idx / frame_count) * 100
+        if progress - last_progress >= 5:
+            print(f"Processed {frame_idx}/{frame_count} frames ({progress:.1f}%)")
+            last_progress = progress
+
+        # Clear some memory
+        if frame_idx % (batch_size * 10) == 0:
+            torch.cuda.empty_cache()
 
     # Calculate total time
     total_time = time.time() - start_time
+
+    print(f"\nProcessing completed in {total_time:.2f} seconds")
+    print(f"Average speed: {frame_count/total_time:.1f} FPS")
 
     # Create result dictionary
     result = {
@@ -496,12 +556,17 @@ def video_process(
         'ball_detection_time': ball_detection_time,
         'pose_detection_time': pose_detection_time,
         'stroke_recognition_time': stroke_recognition_time,
-        'court_points': court_detector.court_points,
-        'ball_positions': ball_detector.calculate_ball_positions(),
-        'ball_positions_top_view': ball_detector.calculate_ball_position_top_view(court_detector),
-        'pose_keypoints': pose_detector.get_pose_keypoints(),
-        'strokes': stroke_recognition.get_strokes()
+        'court_detected': court_detected,
+        'court_points': court_detector.court_points if court_detected else None,
+        'ball_positions': ball_positions,
+        'ball_positions_top_view': ball_detector.calculate_ball_position_top_view(court_detector) if court_detected else None,
+        'pose_keypoints': pose_keypoints,
+        'strokes': stroke_frames
     }
+
+    # Clean up
+    cap.release()
+    print("Processing complete!")
 
     return result
 
@@ -516,24 +581,43 @@ def calculate_player_distance(positions):
     return total_distance
 
 def main(video_path):
-    s = time.time()
-    result_json = video_process(
-        video_path=video_path,
-        output_path='output/output.mp4',
-        create_minimap=True,
-        save_video=True,
-        save_json=True,
-        show_detection=True,
-        show_pose=True,
-        show_ball=False,
-        show_court=False,
-        show_strokes=True,
-        show_minimap=True
-    )
-    computation_time = time.time() - s
-    print(f'Total computation time: {computation_time:.2f} seconds')
-    result_json['Total computation time (s)'] = computation_time
-    return result_json
+    try:
+        s = time.time()
+        result_json = video_process(
+            video_path=video_path,
+            output_path='output/output.mp4',
+            create_minimap=True,
+            save_video=True,
+            save_json=True,
+            show_detection=True,
+            show_pose=True,
+            show_ball=False,
+            show_court=False,
+            show_strokes=True,
+            show_minimap=True
+        )
+
+        if result_json is None:
+            print("Video processing failed")
+            return {
+                'status': 'error',
+                'message': 'Video processing failed',
+                'computation_time': time.time() - s
+            }
+
+        computation_time = time.time() - s
+        print(f'Total computation time: {computation_time:.2f} seconds')
+        result_json['Total computation time (s)'] = computation_time
+        result_json['status'] = 'success'
+        return result_json
+
+    except Exception as e:
+        print(f"Error in main: {str(e)}")
+        return {
+            'status': 'error',
+            'message': str(e),
+            'computation_time': time.time() - s
+        }
 
 def process_batch(frames, detection_model, pose_extractor, ball_detector, court_detector):
     """Process a batch of frames in parallel"""

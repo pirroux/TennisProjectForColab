@@ -78,43 +78,61 @@ class ActionRecognition:
     _feature_extractor = None
     _lstm = None
 
-    def __new__(cls, model_saved_state):
+    def __new__(cls, weights_path=None):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            # Initialize models only once
-            cls._feature_extractor = torchvision.models.inception_v3(
-                weights=Inception_V3_Weights.DEFAULT
-            )
-            cls._lstm = LSTM_model(3)
-            # Load weights with proper handling of numpy scalars
-            from torch.serialization import add_safe_globals
-            from numpy.core.multiarray import scalar
-            add_safe_globals([scalar])
-            try:
-                saved_state = torch.load(
-                    model_saved_state,
-                    map_location='cpu',
-                    weights_only=True
-                )
-            except Exception as e:
-                print("Attempting to load weights without weights_only...")
-                saved_state = torch.load(
-                    model_saved_state,
-                    map_location='cpu'
-                )
-            cls._lstm.load_state_dict(saved_state['model_state'])
+            if weights_path:
+                print("Initializing models...")
+                # Initialize feature extractor first (this is pre-trained and doesn't need loading)
+                print("Loading feature extractor...")
+                cls._feature_extractor = torchvision.models.inception_v3(weights=Inception_V3_Weights.DEFAULT)
+                cls._feature_extractor.fc = Identity()
+                cls._feature_extractor.to('cuda' if torch.cuda.is_available() else 'cpu')
+                cls._feature_extractor.eval()
+                print("Feature extractor loaded successfully")
+
+                # Now load the LSTM weights
+                print("Loading LSTM model...")
+                cls._lstm = LSTM_model(num_classes=3)
+                cls._lstm.to('cuda' if torch.cuda.is_available() else 'cpu')
+
+                print("Loading weights from:", weights_path)
+                try:
+                    # Try direct loading without weights_only first
+                    saved_state = torch.load(weights_path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+                    print("Weights loaded successfully")
+
+                    if isinstance(saved_state, dict) and 'model_state' in saved_state:
+                        print("Loading state dict from model_state key")
+                        cls._lstm.load_state_dict(saved_state['model_state'])
+                    else:
+                        print("Loading complete state dict")
+                        cls._lstm.load_state_dict(saved_state)
+
+                    cls._lstm.eval()
+                    print("LSTM model initialized successfully")
+                except Exception as e:
+                    print(f"Error loading weights: {str(e)}")
+                    raise
+
         return cls._instance
 
-    def __init__(self, model_saved_state):
-        """Initialize instance variables"""
+    def __init__(self, weights_path=None):
+        if not (self._feature_extractor and self._lstm):
+            raise RuntimeError("Models not properly initialized")
+
         self.feature_extractor = self._feature_extractor
-        self.LSTM = self._lstm
+        self.lstm = self._lstm
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+
+        # Initialize parameters
         self.box_margin = 150
         self.frames_features_seq = None
         self.max_seq_len = 90
         self.strokes_label = ['forehand', 'backhand', 'service']
+
+        # Set up transforms
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225]
@@ -124,8 +142,6 @@ class ActionRecognition:
     def add_frame(self, frame, player_box):
         """
         Extract frame features using feature extractor model and add the results to the frames until now.
-        This method extracts the region of interest (ROI) around the player, processes the patch,
-        and concatenates the features to the previous sequence of features.
         """
         # ROI is a small box around the player
         box_center = center_of_box(player_box)
@@ -145,27 +161,27 @@ class ActionRecognition:
         # Extract the patch (ROI) around the player
         patch = frame[top:bottom, left:right].copy()
 
-        # Check if the patch has valid dimensions (non-zero width and height)
+        # Check if the patch has valid dimensions
         if patch.shape[0] == 0 or patch.shape[1] == 0:
             print("Invalid patch: Skipping this frame.")
-            return  # Skip processing if patch is invalid
+            return
 
         # Resize the patch to match the input size of the model
         patch = imutils.resize(patch, 299)
 
-        # Preprocess the patch for the model (convert to CHW format and normalize)
+        # Preprocess the patch for the model
         frame_t = patch.transpose((2, 0, 1)) / 255.0
-        frame_tensor = torch.from_numpy(frame_t).type(self.dtype).to(self.device)  # Move to device
-        frame_tensor = self.normalize(frame_tensor).unsqueeze(0)  # Normalize and add batch dimension
+        frame_tensor = torch.from_numpy(frame_t).type(self.dtype).to(self.device)
+        frame_tensor = self.normalize(frame_tensor).unsqueeze(0)
 
         with torch.no_grad():
-            # Forward pass: Extract features using the feature extractor
+            # Forward pass: Extract features
             features = self.feature_extractor(frame_tensor)
 
-        # Ensure features are on the correct device (MPS in this case)
+        # Ensure features are on the correct device
         features = features.unsqueeze(1).to(self.device)
 
-        # Concatenate the new features to the existing sequence of features
+        # Concatenate the new features to the existing sequence
         if self.frames_features_seq is None:
             self.frames_features_seq = features
         else:
@@ -176,21 +192,19 @@ class ActionRecognition:
         Use saved sequence and predict the stroke
         """
         with torch.no_grad():
-            scores = self.LSTM(self.frames_features_seq)[-1].unsqueeze(0)
+            scores = self.lstm(self.frames_features_seq)[-1].unsqueeze(0)
             probs = self.softmax(scores).squeeze().cpu().numpy()
 
         if clear:
             self.frames_features_seq = None
         return probs, self.strokes_label[np.argmax(probs)]
 
-    def predict_stroke(self, frame, player_2_box):
+    def predict_stroke(self, frame, player_box):
         """
-        Predict the stroke for each frame.
-        This method extracts a patch around the player's bounding box, processes the patch,
-        and uses the sequence of features to predict the stroke.
+        Predict the stroke for each frame
         """
         # Calculate the center of the player's bounding box
-        box_center = center_of_box(player_2_box)
+        box_center = center_of_box(player_box)
 
         # Extract a patch around the box center (ROI)
         top = int(box_center[1] - self.box_margin)
@@ -207,24 +221,24 @@ class ActionRecognition:
         # Extract the patch (ROI) around the player
         patch = frame[top:bottom, left:right].copy()
 
-        # Check if the patch has valid dimensions (non-zero width and height)
+        # Check if the patch has valid dimensions
         if patch.shape[0] == 0 or patch.shape[1] == 0:
             print("Invalid patch: Skipping this frame.")
-            return None, None  # Skip processing if patch is invalid
+            return None, None
 
         # Resize the patch to match the input size of the model
         patch = imutils.resize(patch, 299)
 
-        # Preprocess the patch for the model (convert to CHW format and normalize)
+        # Preprocess the patch for the model
         frame_t = patch.transpose((2, 0, 1)) / 255.0
-        frame_tensor = torch.from_numpy(frame_t).type(self.dtype).to(self.device)  # Move to device
-        frame_tensor = self.normalize(frame_tensor).unsqueeze(0)  # Normalize and add batch dimension
+        frame_tensor = torch.from_numpy(frame_t).type(self.dtype).to(self.device)
+        frame_tensor = self.normalize(frame_tensor).unsqueeze(0)
 
         with torch.no_grad():
-            # Forward pass: Extract features using the feature extractor
+            # Forward pass: Extract features
             features = self.feature_extractor(frame_tensor)
 
-        # Ensure features are on the correct device (MPS in this case)
+        # Ensure features are on the correct device
         features = features.unsqueeze(1).to(self.device)
 
         # Manage the sequence of features
@@ -241,8 +255,8 @@ class ActionRecognition:
 
         with torch.no_grad():
             # Pass the sequence through the LSTM and calculate scores
-            scores = self.LSTM(self.frames_features_seq)[-1].unsqueeze(0)
-            probs = self.softmax(scores).squeeze().cpu().numpy()  # Calculate probabilities
+            scores = self.lstm(self.frames_features_seq)[-1].unsqueeze(0)
+            probs = self.softmax(scores).squeeze().cpu().numpy()
 
         # Return the probabilities and the predicted stroke label
         return probs, self.strokes_label[np.argmax(probs)]

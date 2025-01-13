@@ -36,99 +36,48 @@ class ConvBlock(nn.Module):
 
 # Define BallTrackerNet model
 class BallTrackerNet(nn.Module):
-    def __init__(self, out_channels=256, bn=True):
+    def __init__(self, out_channels=2):
         super(BallTrackerNet, self).__init__()
         self.out_channels = out_channels
 
-        # Encoder layers
-        self.encoder = nn.Sequential(
-            ConvBlock(9, 64, 3, 1, bn=bn),
-            ConvBlock(64, 64, 3, 1, bn=bn),
-            nn.MaxPool2d(2, 2),
-            ConvBlock(64, 128, 3, 1, bn=bn),
-            ConvBlock(128, 128, 3, 1, bn=bn),
-            nn.MaxPool2d(2, 2),
-            ConvBlock(128, 256, 3, 1, bn=bn),
-            ConvBlock(256, 256, 3, 1, bn=bn),
-            ConvBlock(256, 256, 3, 1, bn=bn),
-            nn.MaxPool2d(2, 2),
-            ConvBlock(256, 512, 3, 1, bn=bn),
-            ConvBlock(512, 512, 3, 1, bn=bn),
-            ConvBlock(512, 512, 3, 1, bn=bn)
-        )
+        # First conv block - takes 9 channels (3 frames x 3 channels)
+        self.conv1 = nn.Conv2d(9, 64, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu1 = nn.ReLU()
 
-        # Decoder layers
-        self.decoder = nn.Sequential(
-            nn.Upsample(scale_factor=2),
-            ConvBlock(512, 256, 3, 1, bn=bn),
-            ConvBlock(256, 256, 3, 1, bn=bn),
-            ConvBlock(256, 256, 3, 1, bn=bn),
-            nn.Upsample(scale_factor=2),
-            ConvBlock(256, 128, 3, 1, bn=bn),
-            ConvBlock(128, 128, 3, 1, bn=bn),
-            nn.Upsample(scale_factor=2),
-            ConvBlock(128, 64, 3, 1, bn=bn),
-            ConvBlock(64, 64, 3, 1, bn=bn),
-            ConvBlock(64, self.out_channels, 3, 1, bn=bn)
-        )
+        # Second conv block
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.relu2 = nn.ReLU()
 
-        self.softmax = nn.Softmax(dim=1)
-        self._init_weights()
+        # Output conv
+        self.conv3 = nn.Conv2d(64, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
-        batch_size = x.size(0)
-        features = self.encoder(x)
-        scores_map = self.decoder(features)
-        output = scores_map.reshape(batch_size, self.out_channels, -1)
-        return output
-
-    def _init_weights(self):
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d):
-                nn.init.uniform_(module.weight, -0.05, 0.05)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-            elif isinstance(module, nn.BatchNorm2d):
-                nn.init.constant_(module.weight, 1)
-                nn.init.constant_(module.bias, 0)
-
-    def inference(self, frames: torch.Tensor):
-        self.eval()
-        with torch.no_grad():
-            # Forward pass
-            output = self(frames)
-            output = self.softmax(output)
-            output = output.argmax(dim=1).detach().cpu().numpy()
-            if self.out_channels == 2:
-                output *= 255
-
-            x, y = self.get_center_ball(output)
-        return x, y
-
-    def get_center_ball(self, output):
         """
-        Detect the center of the ball using Hough circle transform.
-        :param output: The output of the network.
-        :return: Indices of the ball's center.
+        Forward pass of the network
+        Input: tensor of shape (batch_size, 9, height, width)
+        Returns: tensor of shape (batch_size, out_channels, height, width)
         """
-        output = output.reshape((360, 640))
-        output = output.astype(np.uint8)  # Convert to uint8 for cv2
+        try:
+            # First conv block
+            x = self.conv1(x)
+            x = self.bn1(x)
+            x = self.relu1(x)
 
-        # Resize output to match the original input size
-        heatmap = cv2.resize(output, (640, 360))
+            # Second conv block
+            x = self.conv2(x)
+            x = self.bn2(x)
+            x = self.relu2(x)
 
-        # Apply threshold to convert the heatmap into a binary image
-        ret, heatmap = cv2.threshold(heatmap, 127, 255, cv2.THRESH_BINARY)
+            # Output conv
+            x = self.conv3(x)
 
-        # Find the circle (ball) in the image with 2 <= radius <= 7
-        circles = cv2.HoughCircles(heatmap, cv2.HOUGH_GRADIENT, dp=1, minDist=1, param1=50, param2=2, minRadius=2, maxRadius=7)
+            return x
 
-        if circles is not None:
-            if len(circles) == 1:
-                x = int(circles[0][0][0])
-                y = int(circles[0][0][1])
-                return x, y
-        return None, None
+        except Exception as e:
+            print(f"Error in BallTrackerNet forward pass: {str(e)}")
+            return None
 
 
 # Accuracy Calculation

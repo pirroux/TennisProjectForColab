@@ -7,6 +7,9 @@ from sympy import Line
 from itertools import combinations
 from court_reference import CourtReference
 import scipy.signal as sp
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import torch
+import torch.nn.functional as F
 
 
 class CourtDetector:
@@ -42,227 +45,353 @@ class CourtDetector:
         self.best_conf = None
         self.frame_points = None
         self.dist = 5
+        # Use GPU if available
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def detect(self, frame, verbose=0):
         """
         Detecting the court in the frame
         """
-        self.verbose = verbose
-        self.frame = frame
-        self.v_height, self.v_width = frame.shape[:2]
-        # Get binary image from the frame
-        self.gray = self._threshold(frame)
+        try:
+            self.verbose = verbose
 
-        # Filter pixel using the court known structure
-        filtered = self._filter_pixels(self.gray)
+            # Validate input frame
+            if frame is None or frame.size == 0:
+                print("Invalid input frame")
+                return False
 
-        # Detect lines using Hough transform
-        horizontal_lines, vertical_lines = self._detect_lines(filtered)
+            # Get original dimensions
+            self.v_height, self.v_width = frame.shape[:2]
 
-        # Find transformation from reference court to frame`s court
-        court_warp_matrix, game_warp_matrix, self.court_score = self._find_homography(horizontal_lines,
-                                                                                      vertical_lines)
-        self.court_warp_matrix.append(court_warp_matrix)
-        self.game_warp_matrix.append(game_warp_matrix)
-        court_accuracy = self._get_court_accuracy(0)
-        if court_accuracy > self.success_accuracy and self.court_score > self.success_score:
-            self.success_flag = True
-        print('Court accuracy = %.2f' % court_accuracy)
-        # Find important lines location on frame
-        self.find_lines_location()
-        '''game_warped = cv2.warpPerspective(self.frame, self.game_warp_matrix,
-                                          (self.court_reference.court.shape[1], self.court_reference.court.shape[0]))
-        cv2.imwrite('../report/warped_game_1.png', game_warped)'''
+            # Ensure minimum frame size
+            min_size = 100  # Minimum dimension size
+            if self.v_height < min_size or self.v_width < min_size:
+                print(f"Frame too small: {self.v_width}x{self.v_height}")
+                return False
 
-    def _threshold(self, frame):
-        """
-        Simple thresholding for white pixels
-        """
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)[1]
-        return gray
+            # Calculate scale factor while ensuring minimum size
+            target_width = 800  # Target width for processing
+            scale_factor = min(1.0, target_width / self.v_width)
 
-    def _filter_pixels(self, gray):
-        """
-        Filter pixels by using the court line structure
-        """
-        for i in range(self.dist_tau, len(gray) - self.dist_tau):
-            for j in range(self.dist_tau, len(gray[0]) - self.dist_tau):
-                if gray[i, j] == 0:
-                    continue
-                if (gray[i, j] - gray[i + self.dist_tau, j] > self.intensity_threshold and
-                        gray[i, j] - gray[i - self.dist_tau, j] > self.intensity_threshold):
-                    continue
+            # Ensure scaled dimensions are valid
+            new_width = max(min_size, int(self.v_width * scale_factor))
+            new_height = max(min_size, int(self.v_height * scale_factor))
 
-                if (gray[i, j] - gray[i, j + self.dist_tau] > self.intensity_threshold and
-                        gray[i, j] - gray[i, j - self.dist_tau] > self.intensity_threshold):
-                    continue
-                gray[i, j] = 0
-        return gray
+            # Resize frame for faster processing
+            small_frame = cv2.resize(frame, (new_width, new_height))
+            self.frame = frame  # Keep original frame
 
-    def _detect_lines(self, gray):
-        """
-        Finds all line in frame using Hough transform
-        """
-        minLineLength = 100
-        maxLineGap = 20
-        # Detect all lines
-        lines = cv2.HoughLinesP(gray, 1, np.pi / 180, 80, minLineLength=minLineLength, maxLineGap=maxLineGap)
-        lines = np.squeeze(lines)
-        if self.verbose:
-            display_lines_on_frame(self.frame.copy(), [], lines)
+            # Convert frame to GPU tensor for faster processing
+            try:
+                frame_tensor = torch.from_numpy(small_frame).to(self.device)
+                if len(frame_tensor.shape) == 3:
+                    frame_tensor = frame_tensor.permute(2, 0, 1).unsqueeze(0).float()
+            except Exception as e:
+                print(f"Error converting frame to tensor: {str(e)}")
+                return False
 
-        # Classify the lines using their slope
-        horizontal, vertical = self._classify_lines(lines)
-        if self.verbose:
-            display_lines_on_frame(self.frame.copy(), horizontal, vertical)
+            # Get binary image from the frame using GPU
+            try:
+                self.gray = self._threshold_gpu(frame_tensor)
+            except Exception as e:
+                print(f"Error in thresholding: {str(e)}")
+                return False
 
-        # Merge lines that belong to the same line on frame
-        horizontal, vertical = self._merge_lines(horizontal, vertical)
-        if self.verbose:
-            display_lines_on_frame(self.frame.copy(), horizontal, vertical)
+            # Filter pixel using the court known structure
+            try:
+                filtered = self._filter_pixels_gpu(self.gray)
+                filtered_cpu = filtered.cpu().numpy().astype(np.uint8)
+            except Exception as e:
+                print(f"Error in pixel filtering: {str(e)}")
+                return False
 
-        return horizontal, vertical
+            # Detect lines using optimized Hough transform parameters
+            try:
+                horizontal_lines, vertical_lines = self._detect_lines_parallel(filtered_cpu)
+            except Exception as e:
+                print(f"Error in line detection: {str(e)}")
+                return False
 
-    def _classify_lines(self, lines):
-        """
-        Classify line to vertical and horizontal lines
-        """
-        horizontal = []
-        vertical = []
-        highest_vertical_y = np.inf
-        lowest_vertical_y = 0
-        for line in lines:
-            x1, y1, x2, y2 = line
-            dx = abs(x1 - x2)
-            dy = abs(y1 - y2)
-            if dx > 2 * dy:
-                horizontal.append(line)
+            if len(horizontal_lines) < 2 or len(vertical_lines) < 2:
+                print("Not enough lines detected for court detection")
+                return False
+
+            # Find transformation from reference court to frame's court
+            try:
+                court_warp_matrix, game_warp_matrix, self.court_score = self._find_homography_parallel(
+                    horizontal_lines,
+                    vertical_lines,
+                    scale_factor
+                )
+            except Exception as e:
+                print(f"Error in homography computation: {str(e)}")
+                return False
+
+            if court_warp_matrix is None:
+                print("Could not find valid homography")
+                return False
+
+            # Scale back the transformation matrix
+            try:
+                court_warp_matrix = court_warp_matrix * np.array([[1/scale_factor, 0, 1/scale_factor],
+                                                                [0, 1/scale_factor, 1/scale_factor],
+                                                                [0, 0, 1]])
+                game_warp_matrix = game_warp_matrix * np.array([[scale_factor, 0, scale_factor],
+                                                                  [0, scale_factor, scale_factor],
+                                                                  [0, 0, 1]])
+            except Exception as e:
+                print(f"Error scaling transformation matrix: {str(e)}")
+                return False
+
+            self.court_warp_matrix.append(court_warp_matrix)
+            self.game_warp_matrix.append(game_warp_matrix)
+
+            try:
+                court_accuracy = self._get_court_accuracy(0)
+            except Exception as e:
+                print(f"Error computing court accuracy: {str(e)}")
+                return False
+
+            if court_accuracy > self.success_accuracy and self.court_score > self.success_score:
+                self.success_flag = True
+                print(f'Court detected successfully with accuracy = {court_accuracy:.2f}%')
+                try:
+                    self.find_lines_location()
+                except Exception as e:
+                    print(f"Error finding lines location: {str(e)}")
+                    return False
+                return True
             else:
-                vertical.append(line)
-                highest_vertical_y = min(highest_vertical_y, y1, y2)
-                lowest_vertical_y = max(lowest_vertical_y, y1, y2)
+                print(f'Court detection failed with accuracy = {court_accuracy:.2f}%')
+                return False
 
-        # Filter horizontal lines using vertical lines lowest and highest point
-        clean_horizontal = []
-        h = lowest_vertical_y - highest_vertical_y
-        lowest_vertical_y += h / 15
-        highest_vertical_y -= h * 2 / 15
-        for line in horizontal:
-            x1, y1, x2, y2 = line
-            if lowest_vertical_y > y1 > highest_vertical_y and lowest_vertical_y > y1 > highest_vertical_y:
-                clean_horizontal.append(line)
-        return clean_horizontal, vertical
+        except Exception as e:
+            print(f"Unexpected error in court detection: {str(e)}")
+            return False
 
-    def _classify_vertical(self, vertical, width):
+    def _threshold_gpu(self, frame_tensor):
         """
-        Classify vertical lines to right and left vertical lines using the location on frame
+        GPU-accelerated thresholding
         """
-        vertical_lines = []
-        vertical_left = []
-        vertical_right = []
-        right_th = width * 4 / 7
-        left_th = width * 3 / 7
-        for line in vertical:
-            x1, y1, x2, y2 = line
-            if x1 < left_th or x2 < left_th:
-                vertical_left.append(line)
-            elif x1 > right_th or x2 > right_th:
-                vertical_right.append(line)
+        try:
+            if len(frame_tensor.shape) == 4:  # If RGB
+                # Convert to grayscale using GPU
+                gray_weights = torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1).to(self.device)
+                gray_tensor = (frame_tensor * gray_weights).sum(dim=1, keepdim=True)
             else:
-                vertical_lines.append(line)
-        return vertical_lines, vertical_left, vertical_right
+                gray_tensor = frame_tensor
 
-    def _merge_lines(self, horizontal_lines, vertical_lines):
+            # Threshold
+            threshold_value = self.colour_threshold
+            binary_tensor = (gray_tensor > threshold_value).float() * 255
+            return binary_tensor
+
+        except Exception as e:
+            print(f"Error in GPU thresholding: {str(e)}")
+            raise
+
+    def _filter_pixels_gpu(self, gray_tensor):
         """
-        Merge lines that belongs to the same frame`s lines
+        GPU-accelerated pixel filtering
         """
+        # Create kernels for vertical and horizontal filtering
+        kernel_size = self.dist_tau * 2 + 1
+        vertical_kernel = torch.zeros((1, 1, kernel_size, 1)).to(self.device)
+        horizontal_kernel = torch.zeros((1, 1, 1, kernel_size)).to(self.device)
+        vertical_kernel[0, 0, 0, 0] = vertical_kernel[0, 0, -1, 0] = 1
+        horizontal_kernel[0, 0, 0, 0] = horizontal_kernel[0, 0, 0, -1] = 1
 
-        # Merge horizontal lines
-        horizontal_lines = sorted(horizontal_lines, key=lambda item: item[0])
-        mask = [True] * len(horizontal_lines)
-        new_horizontal_lines = []
-        for i, line in enumerate(horizontal_lines):
-            if mask[i]:
-                for j, s_line in enumerate(horizontal_lines[i + 1:]):
-                    if mask[i + j + 1]:
-                        x1, y1, x2, y2 = line
-                        x3, y3, x4, y4 = s_line
-                        dy = abs(y3 - y2)
-                        if dy < 10:
-                            points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[0])
-                            line = np.array([*points[0], *points[-1]])
-                            mask[i + j + 1] = False
-                new_horizontal_lines.append(line)
+        # Apply convolution for edge detection
+        vertical_edges = F.conv2d(gray_tensor, vertical_kernel, padding=(kernel_size//2, 0))
+        horizontal_edges = F.conv2d(gray_tensor, horizontal_kernel, padding=(0, kernel_size//2))
 
-        # Merge vertical lines
-        vertical_lines = sorted(vertical_lines, key=lambda item: item[1])
-        xl, yl, xr, yr = (0, self.v_height * 6 / 7, self.v_width, self.v_height * 6 / 7)
-        mask = [True] * len(vertical_lines)
-        new_vertical_lines = []
-        for i, line in enumerate(vertical_lines):
-            if mask[i]:
-                for j, s_line in enumerate(vertical_lines[i + 1:]):
-                    if mask[i + j + 1]:
-                        x1, y1, x2, y2 = line
-                        x3, y3, x4, y4 = s_line
-                        xi, yi = line_intersection(((x1, y1), (x2, y2)), ((xl, yl), (xr, yr)))
-                        xj, yj = line_intersection(((x3, y3), (x4, y4)), ((xl, yl), (xr, yr)))
+        # Combine edges
+        edges = torch.max(vertical_edges, horizontal_edges)
+        filtered = (edges > self.intensity_threshold).float() * gray_tensor
 
-                        dx = abs(xi - xj)
-                        if dx < 10:
-                            points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[1])
-                            line = np.array([*points[0], *points[-1]])
-                            mask[i + j + 1] = False
+        return filtered
 
-                new_vertical_lines.append(line)
-        return new_horizontal_lines, new_vertical_lines
-
-    def _find_homography(self, horizontal_lines, vertical_lines):
+    def _detect_lines_parallel(self, gray):
         """
-        Finds transformation from reference court to frame`s court using 4 pairs of matching points
+        Parallel line detection using multiple threads
         """
+        def process_region(region):
+            if region is None or region.size == 0:
+                return []
+
+            # Ensure region has valid dimensions
+            if region.shape[0] < 2 or region.shape[1] < 2:
+                return []
+
+            try:
+                # Apply additional preprocessing to enhance line detection
+                region = cv2.GaussianBlur(region, (3, 3), 0)
+                edges = cv2.Canny(region, 50, 150, apertureSize=3)
+
+                # Detect lines with more lenient parameters
+                lines = cv2.HoughLinesP(
+                    edges,
+                    rho=1,
+                    theta=np.pi/180,
+                    threshold=30,  # Reduced threshold
+                    minLineLength=int(region.shape[1] * 0.1),  # Reduced minimum line length
+                    maxLineGap=int(region.shape[1] * 0.03)  # Increased max gap
+                )
+
+                if lines is None:
+                    return []
+
+                # Filter lines by angle and length
+                filtered_lines = []
+                for line in lines:
+                    x1, y1, x2, y2 = line[0]
+                    length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                    angle = np.abs(np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi)
+
+                    # Keep lines that are roughly horizontal (0±20°) or vertical (90±20°)
+                    if (length > region.shape[1] * 0.1 and  # Minimum length check
+                        ((angle < 20) or (angle > 70 and angle < 110) or (angle > 160))):
+                        filtered_lines.append(line[0])
+
+                return np.array(filtered_lines) if filtered_lines else []
+
+            except cv2.error as e:
+                print(f"OpenCV error in line detection: {str(e)}")
+                return []
+            except Exception as e:
+                print(f"Error in line detection: {str(e)}")
+                return []
+
+        # Split image into regions for parallel processing
+        try:
+            # Use more regions for better coverage
+            num_regions = 6
+            region_height = max(2, gray.shape[0] // num_regions)
+            regions = []
+
+            # Add overlap between regions
+            overlap = int(region_height * 0.2)
+            for i in range(num_regions):
+                start = max(0, i * region_height - overlap)
+                end = min(gray.shape[0], (i + 1) * region_height + overlap)
+                if end > start:
+                    region = gray[start:end].copy()
+                    regions.append(region)
+
+            # Process regions in parallel
+            with ThreadPoolExecutor(max_workers=num_regions) as executor:
+                futures = [executor.submit(process_region, region) for region in regions]
+                all_lines = []
+                for future in as_completed(futures):
+                    result = future.result()
+                    if isinstance(result, np.ndarray) and result.size > 0:
+                        all_lines.extend(result)
+
+            if not all_lines:
+                print("No lines detected in any region")
+                return [], []
+
+            lines = np.array(all_lines)
+            if len(lines.shape) == 1:
+                lines = lines.reshape(1, -1)
+
+            # Classify and merge lines
+            horizontal, vertical = self._classify_lines(lines)
+
+            # Print debug info
+            print(f"Detected {len(horizontal)} horizontal and {len(vertical)} vertical lines")
+
+            # Ensure minimum number of lines
+            if len(horizontal) < 2 or len(vertical) < 2:
+                print(f"Insufficient lines detected: {len(horizontal)} horizontal, {len(vertical)} vertical")
+                return [], []
+
+            return self._merge_lines(horizontal, vertical)
+
+        except Exception as e:
+            print(f"Error in parallel line detection: {str(e)}")
+            return [], []
+
+    def _find_homography_parallel(self, horizontal_lines, vertical_lines, scale_factor=1.0):
+        """
+        Parallel homography computation
+        """
+        def process_combination(args):
+            h_pair, v_pair, config = args
+            try:
+                h1, h2 = h_pair
+                v1, v2 = v_pair
+
+                # Find intersections
+                i1 = line_intersection((tuple(h1[:2]), tuple(h1[2:])),
+                                     (tuple(v1[0:2]), tuple(v1[2:])))
+                i2 = line_intersection((tuple(h1[:2]), tuple(h1[2:])),
+                                     (tuple(v2[0:2]), tuple(v2[2:])))
+                i3 = line_intersection((tuple(h2[:2]), tuple(h2[2:])),
+                                     (tuple(v1[0:2]), tuple(v1[2:])))
+                i4 = line_intersection((tuple(h2[:2]), tuple(h2[2:])),
+                                     (tuple(v2[0:2]), tuple(v2[2:])))
+
+                intersections = [i1, i2, i3, i4]
+                if any(x is None for x in intersections):
+                    return None
+
+                intersections = sort_intersection_points(intersections)
+
+                # Early stopping if points are too close
+                if any(np.linalg.norm(np.array(p1) - np.array(p2)) < 10
+                      for p1, p2 in combinations(intersections, 2)):
+                    return None
+
+                # Find homography
+                matrix, _ = cv2.findHomography(
+                    np.float32(config),
+                    np.float32(intersections),
+                    method=cv2.RANSAC
+                )
+                if matrix is None:
+                    return None
+
+                inv_matrix = cv2.invert(matrix)[1]
+                score = self._get_confi_score(matrix)
+
+                return (matrix, inv_matrix, score)
+            except:
+                return None
+
+        # Prepare combinations
+        horizontal_lines = sorted(horizontal_lines,
+                                key=lambda line: np.linalg.norm(line[2:] - line[:2]),
+                                reverse=True)[:4]
+        vertical_lines = sorted(vertical_lines,
+                              key=lambda line: np.linalg.norm(line[2:] - line[:2]),
+                              reverse=True)[:4]
+
+        h_pairs = list(combinations(horizontal_lines, 2))[:50]  # Limit combinations
+        v_pairs = list(combinations(vertical_lines, 2))[:50]
+
+        # Create all combinations with configurations
+        combinations_list = [(h, v, conf) for h in h_pairs
+                           for v in v_pairs
+                           for conf in self.court_reference.court_conf.values()]
+
+        # Process combinations in parallel
         max_score = -np.inf
         max_mat = None
         max_inv_mat = None
-        k = 0
-        # Loop over every pair of horizontal lines and every pair of vertical lines
-        for horizontal_pair in list(combinations(horizontal_lines, 2)):
-            for vertical_pair in list(combinations(vertical_lines, 2)):
-                h1, h2 = horizontal_pair
-                v1, v2 = vertical_pair
-                # Finding intersection points of all lines
-                i1 = line_intersection((tuple(h1[:2]), tuple(h1[2:])), (tuple(v1[0:2]), tuple(v1[2:])))
-                i2 = line_intersection((tuple(h1[:2]), tuple(h1[2:])), (tuple(v2[0:2]), tuple(v2[2:])))
-                i3 = line_intersection((tuple(h2[:2]), tuple(h2[2:])), (tuple(v1[0:2]), tuple(v1[2:])))
-                i4 = line_intersection((tuple(h2[:2]), tuple(h2[2:])), (tuple(v2[0:2]), tuple(v2[2:])))
 
-                intersections = [i1, i2, i3, i4]
-                intersections = sort_intersection_points(intersections)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(process_combination, combo)
+                      for combo in combinations_list]
 
-                for i, configuration in self.court_reference.court_conf.items():
-                    # Find transformation
-                    matrix, _ = cv2.findHomography(np.float32(configuration), np.float32(intersections), method=0)
-                    inv_matrix = cv2.invert(matrix)[1]
-                    # Get transformation score
-                    confi_score = self._get_confi_score(matrix)
-
-                    if max_score < confi_score:
-                        max_score = confi_score
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    matrix, inv_matrix, score = result
+                    if score > max_score:
+                        max_score = score
                         max_mat = matrix
                         max_inv_mat = inv_matrix
-                        self.best_conf = i
-
-                    k += 1
-
-        if self.verbose:
-            frame = self.frame.copy()
-            court = self.add_court_overlay(frame, max_mat, (255, 0, 0))
-            cv2.imshow('court', court)
-            if cv2.waitKey(0) & 0xff == 27:
-                cv2.destroyAllWindows()
-        print(f'Score = {max_score}')
-        print(f'Combinations tested = {k}')
 
         return max_mat, max_inv_mat, max_score
 
