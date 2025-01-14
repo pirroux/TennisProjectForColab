@@ -15,6 +15,10 @@ from detection import center_of_box
 from utils import get_dtype
 import pandas as pd
 import numpy
+from torch.serialization import add_safe_globals
+from numpy.core.multiarray import scalar
+from numpy import dtype
+from numpy.dtypes import Float64DType
 
 class Identity(nn.Module):
     def __init__(self):
@@ -41,7 +45,7 @@ class LSTM_model(nn.Module):
     """
     Time sequence model for stroke classifying
     """
-    def __init__(self, num_classes, input_size=2048, num_layers=3, hidden_size=90, dtype=torch.cuda.FloatTensor):
+    def __init__(self, num_classes=3, input_size=2048, num_layers=3, hidden_size=90, dtype=torch.cuda.FloatTensor):
         super().__init__()
         self.dtype = dtype
         self.input_size = input_size
@@ -98,8 +102,11 @@ class ActionRecognition:
 
                 print("Loading weights from:", weights_path)
                 try:
-                    # Try direct loading without weights_only first
-                    saved_state = torch.load(weights_path, map_location='cuda' if torch.cuda.is_available() else 'cpu')
+                    # Add numpy scalar, dtype and Float64DType to safe globals
+                    add_safe_globals([scalar, dtype, Float64DType])
+
+                    # Try loading with weights_only=True first
+                    saved_state = torch.load(weights_path, map_location='cuda' if torch.cuda.is_available() else 'cpu', weights_only=True)
                     print("Weights loaded successfully")
 
                     if isinstance(saved_state, dict) and 'model_state' in saved_state:
@@ -117,14 +124,11 @@ class ActionRecognition:
 
         return cls._instance
 
-    def __init__(self, weights_path=None):
-        if not (self._feature_extractor and self._lstm):
-            raise RuntimeError("Models not properly initialized")
-
+    def __init__(self, weights_path):
+        """Initialize the models and load weights"""
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.feature_extractor = self._feature_extractor
         self.lstm = self._lstm
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
         # Initialize parameters
         self.box_margin = 150
@@ -186,6 +190,12 @@ class ActionRecognition:
             self.frames_features_seq = features
         else:
             self.frames_features_seq = torch.cat([self.frames_features_seq, features], dim=1)
+
+        # Ensure the sequence does not exceed the maximum length
+        if self.frames_features_seq.size(1) > self.max_seq_len:
+            remove = self.frames_features_seq[:, 0, :]
+            remove = remove.detach().cpu()  # Detach and move to CPU for cleanup
+            self.frames_features_seq = self.frames_features_seq[:, 1:, :]
 
     def predict_saved_seq(self, clear=True):
         """

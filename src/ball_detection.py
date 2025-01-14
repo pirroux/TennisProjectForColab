@@ -13,6 +13,9 @@ from detection import center_of_box
 from utils import get_video_properties
 import tensorflow as tf
 import torch.nn.functional as F
+from torch.serialization import add_safe_globals
+from numpy.core.multiarray import scalar
+from numpy import dtype
 
 
 def combine_three_frames(frame1, frame2, frame3, width, height):
@@ -49,32 +52,42 @@ class BallDetector:
     """
     _instance = None
 
-    def __new__(cls, weights_path=None, out_channels=2):
+    def __new__(cls, weights_path):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
             print("Initializing BallDetector...")
-            cls._instance.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            cls._instance.detector = BallTrackerNet(out_channels=out_channels).to(cls._instance.device)
+            cls._instance = super(BallDetector, cls).__new__(cls)
+            cls._instance.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            cls._instance.detector = BallTrackerNet(out_channels=2).to(cls._instance.device)
 
-            if weights_path:
-                print("Loading weights from:", weights_path)
-                try:
-                    checkpoint = torch.load(weights_path, map_location=cls._instance.device)
-                    if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
-                        state_dict = checkpoint['model_state']
-                    else:
-                        state_dict = checkpoint
-                    cls._instance.detector.load_state_dict(state_dict, strict=False)
-                    print("Weights loaded successfully")
-                except Exception as e:
-                    print(f"Error loading weights: {str(e)}")
-                    raise
+            print("Loading weights from:", weights_path)
+            try:
+                # Add numpy scalar and dtype to safe globals
+                add_safe_globals([scalar, dtype])
+
+                # First try loading with weights_only=True
+                checkpoint = torch.load(weights_path, weights_only=True)
+            except Exception as e:
+                print(f"Warning: Failed to load with weights_only=True, attempting without: {str(e)}")
+                checkpoint = torch.load(weights_path, weights_only=False)
+
+            # Handle both dictionary and direct state dict formats
+            if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
+                state_dict = checkpoint['model_state']
+            else:
+                state_dict = checkpoint
+
+            # Try loading state dict
+            try:
+                cls._instance.detector.load_state_dict(state_dict, strict=True)
+            except RuntimeError as e:
+                print(f"Warning: Strict loading failed, attempting non-strict loading: {str(e)}")
+                cls._instance.detector.load_state_dict(state_dict, strict=False)
 
             cls._instance.detector.eval()
             cls._instance.frame_buffer = []
             cls._instance.buffer_size = 3
             cls._instance.xy_coordinates = []
-            print("BallDetector initialized successfully")
+            print("Weights loaded successfully")
 
         return cls._instance
 
@@ -129,20 +142,28 @@ class BallDetector:
                 return None, None
 
             # Convert output to probability map using softmax
-            prob_map = F.softmax(output[0], dim=0)[1].cpu().numpy()
+            prob_map = F.softmax(output[0], dim=0)  # Keep as tensor
+            prob_map = prob_map[1].cpu().numpy()  # Convert to numpy array
 
             # Find ball center using maximum probability
-            max_prob = prob_map.max()
+            max_prob = np.max(prob_map)  # Get max probability
             if max_prob < 0.5:  # Confidence threshold
                 self.xy_coordinates.append([None, None])
                 return None, None
 
             # Get coordinates of maximum probability
-            y, x = np.unravel_index(np.argmax(prob_map), prob_map.shape)
+            max_index = np.argmax(prob_map)
+            y_idx, x_idx = np.unravel_index(max_index, prob_map.shape)
 
-            # Convert to Python scalars and store
-            x, y = float(x), float(y)
-            self.xy_coordinates.append([x, y])
+            # Convert indices to Python scalars
+            x = int(x_idx)  # Convert to int first
+            y = int(y_idx)  # Convert to int first
+            x = float(x)    # Then to float
+            y = float(y)    # Then to float
+
+            # Store coordinates as a list of Python scalars
+            coords = [x, y]
+            self.xy_coordinates.append(coords)
             return x, y
 
         except Exception as e:

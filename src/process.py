@@ -415,10 +415,12 @@ def video_process(
     # Initialize models with error handling
     try:
         print("Initializing models...")
+        # Initialize models with weights from Google Drive
+        weights_dir = "/content/drive/MyDrive/Tennis_Weights"
+        ball_detector = BallDetector(os.path.join(weights_dir, "tracknet_weights_2_classes.pth"))
         court_detector = CourtDetector()
-        ball_detector = BallDetector('/content/TennisProjectForColab/src/saved states/tracknet_weights_2_classes.pth', out_channels=2)
         pose_detector = PoseDetector()
-        stroke_recognition = ActionRecognition('/content/TennisProjectForColab/src/saved states/storke_classifier_weights.pth')
+        stroke_recognition = ActionRecognition(os.path.join(weights_dir, "storke_classifier_weights.pth"))
         print("Models initialized successfully")
     except Exception as e:
         print(f"Error initializing models: {str(e)}")

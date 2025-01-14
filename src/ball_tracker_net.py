@@ -1,4 +1,3 @@
-import sys
 import torch
 import torch.nn as nn
 import numpy as np
@@ -10,10 +9,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from datasets import TrackNetDataset, get_dataloaders
 from trainer import plot_graph
 import torch.nn.functional as F
-
-# Append custom path for imports
-sys.path.append('/content/TennisProject/src')
-
 
 # Define ConvBlock
 class ConvBlock(nn.Module):
@@ -40,18 +35,37 @@ class BallTrackerNet(nn.Module):
         super(BallTrackerNet, self).__init__()
         self.out_channels = out_channels
 
-        # First conv block - takes 9 channels (3 frames x 3 channels)
-        self.conv1 = nn.Conv2d(9, 64, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu1 = nn.ReLU()
+        # Encoder blocks
+        self.encoder = nn.ModuleList([
+            ConvBlock(9, 64, 3, 1),  # First block takes 9 channels (3 frames x 3 channels)
+            ConvBlock(64, 64, 3, 1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(64, 128, 3, 1),
+            ConvBlock(128, 128, 3, 1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(128, 256, 3, 1),
+            ConvBlock(256, 256, 3, 1),
+            ConvBlock(256, 256, 3, 1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(256, 512, 3, 1),
+            ConvBlock(512, 512, 3, 1),
+            ConvBlock(512, 512, 3, 1)
+        ])
 
-        # Second conv block
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.relu2 = nn.ReLU()
-
-        # Output conv
-        self.conv3 = nn.Conv2d(64, out_channels, kernel_size=3, padding=1)
+        # Decoder blocks
+        self.decoder = nn.ModuleList([
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBlock(512, 256, 3, 1),
+            ConvBlock(256, 256, 3, 1),
+            ConvBlock(256, 256, 3, 1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBlock(256, 128, 3, 1),
+            ConvBlock(128, 128, 3, 1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBlock(128, 64, 3, 1),
+            ConvBlock(64, 64, 3, 1),
+            ConvBlock(64, out_channels, 3, 1, bn=False)
+        ])
 
     def forward(self, x):
         """
@@ -60,18 +74,13 @@ class BallTrackerNet(nn.Module):
         Returns: tensor of shape (batch_size, out_channels, height, width)
         """
         try:
-            # First conv block
-            x = self.conv1(x)
-            x = self.bn1(x)
-            x = self.relu1(x)
+            # Encoder path
+            for layer in self.encoder:
+                x = layer(x)
 
-            # Second conv block
-            x = self.conv2(x)
-            x = self.bn2(x)
-            x = self.relu2(x)
-
-            # Output conv
-            x = self.conv3(x)
+            # Decoder path
+            for layer in self.decoder:
+                x = layer(x)
 
             return x
 

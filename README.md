@@ -1,58 +1,64 @@
 # Tennis Project
 
-## Intro
-This project is the final project for B.Sc degree at the Technion institute.
-In this project I present an end-to-end model that uses computer vision algorithms and deep learning networks in order to process and analyse
-official tennis matches.
-Main paper used for this project is [Vinyes-Mora-S-2018-PhD-Thesis](https://spiral.imperial.ac.uk/handle/10044/1/67949)
-
-## Project Scope
-This project is mainly focused on official match videos, and camera position and angle as shown in the next section.
-
-Example for some tasks completed in this project are:
-1. Detecting and tracking the tennis court in frame
-2. Detecting and tracking both player in the frame
-3. Detecting and tracking the ball
-4. Extract the bottom player skeleton
-5. Detecting the exact moment of strokes
-6. Classify the strokes of the bottom player
-7. Create top view gameplay
-8. Calculate statistics of the gameplay of both players including positions heatmap and distance travelled
-
-## Example
-![alt text](https://github.com/avivcaspi/TennisProject/blob/main/example_short.gif)
-
-## Requirements
-Python 3.4, OpenCV (cv2), PyTorch and other common packages listed in `requirements.txt` at the [src](https://github.com/avivcaspi/TennisProject/blob/main/src) directory.
-
-## Entry point
-Entry point for the code is in process.py (scroll to the bottom to see main function video_process(...)).
-
-## Required Model Weights
-
-Before running the project, you need to download the following model weight files and place them in the `src/saved states/` directory:
-
-1. `tracknet_weights_2_classes.pth` - Ball detection model weights
-2. `storke_classifier_weights.pth` - Stroke classification model weights
-
-### Downloading the Weights
-
-The model weights are available on Google Drive. To download them:
-
-1. Visit [Google Drive Link - Add your link here]
-2. Download both `.pth` files
-3. Place them in the `src/saved states/` directory of this project
-
-Without these weight files, the ball detection and stroke classification features will not work.
+This project analyzes tennis videos to detect players, track the ball, and recognize strokes.
 
 ## Project Structure
 
 ```
-src/
-├── saved states/        # Directory for model weights
-│   ├── tracknet_weights_2_classes.pth    # Ball detection weights (download required)
-│   └── storke_classifier_weights.pth     # Stroke classification weights (download required)
-├── ball_detection.py    # Ball detection implementation
-├── court_detection.py   # Court detection implementation
-└── ...
+TennisProjectForColab/
+├── src/                    # Source code
+│   ├── ball_detection.py   # Ball detection logic
+│   ├── ball_tracker_net.py # Ball tracking neural network
+│   ├── court_detection.py  # Court detection logic
+│   ├── detection.py        # General detection utilities
+│   ├── pose.py            # Pose detection
+│   ├── process.py         # Main processing pipeline
+│   ├── stroke_recognition.py # Stroke recognition logic
+│   └── saved states/      # Model weights (not in git)
+├── output/                 # Output videos and results
+└── README.md
 ```
+
+## Required Model Weights
+
+The following model weights are required and should be downloaded from Google Drive:
+1. `tracknet_weights_2_classes.pth` - Ball detection model weights
+2. `storke_classifier_weights.pth` - Stroke classification model weights
+
+Place these files in your Google Drive at: `/content/drive/MyDrive/Tennis_Weights/`
+
+## Setup Instructions
+
+### Local Setup
+1. Clone the repository:
+```bash
+git clone https://github.com/pirroux/TennisProjectForColab.git
+cd TennisProjectForColab
+```
+
+2. Create necessary directories:
+```bash
+mkdir -p src/saved\ states output
+```
+
+3. Download model weights from Google Drive and place them in `src/saved states/`
+
+### Google Colab Setup
+1. Mount Google Drive
+2. Clone the repository:
+```python
+!git clone https://github.com/pirroux/TennisProjectForColab.git
+%cd TennisProjectForColab
+```
+
+3. The model weights will be automatically loaded from `/content/drive/MyDrive/Tennis_Weights/`
+
+## Usage
+
+1. Place your input video in the project directory
+2. Run the processing script:
+```python
+python src/process.py
+```
+
+The output will be saved in the `output/` directory.
