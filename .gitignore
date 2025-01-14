@@ -28,11 +28,19 @@ env/
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
 
 # Project specific
 output/
 *.mp4
 *.avi
-*.weights
+*.mov
+*.jpg
+*.png
 *.pth
-saved states/
+*.weights
+
+# Logs
+*.log
+logs/

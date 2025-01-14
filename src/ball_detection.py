@@ -92,100 +92,62 @@ class BallDetector:
         pass
 
     def preprocess_frame(self, frame):
-        """Convert frame to tensor and normalize"""
-        if frame is None:
-            return None
+        """Preprocess a single frame for ball detection."""
         try:
-            # Resize frame
-            frame = cv2.resize(frame, (640, 360))
-
-            # Convert to float and normalize
+            # Convert frame to float and normalize
             frame = frame.astype(np.float32) / 255.0
-            return frame
+
+            # Convert to channels first format (C, H, W)
+            frame = np.transpose(frame, (2, 0, 1))
+
+            # Convert to tensor and add batch dimension
+            frame_tensor = torch.from_numpy(frame).unsqueeze(0)
+
+            # Move to appropriate device
+            frame_tensor = frame_tensor.to(self.device)
+
+            return frame_tensor
 
         except Exception as e:
-            print(f"Error in preprocess_frame: {str(e)}")
+            print(f"Error in frame preprocessing: {str(e)}")
             return None
 
     def detect_ball(self, frame):
-        """Detect ball in the current frame using a buffer of 3 frames"""
+        """Detect ball in a single frame."""
         try:
-            # Preprocess current frame
-            processed_frame = self.preprocess_frame(frame)
-            if processed_frame is None:
-                self.xy_coordinates.append([None, None])
-                return None, None
+            # Preprocess frame
+            frame_tensor = self.preprocess_frame(frame)
 
-            # Update frame buffer
-            self.frame_buffer.append(processed_frame)
-
-            # Keep only the last 3 frames
-            if len(self.frame_buffer) > self.buffer_size:
-                self.frame_buffer = self.frame_buffer[-self.buffer_size:]
-
-            # If we don't have enough frames yet, store None and return
-            if len(self.frame_buffer) < self.buffer_size:
-                print(f"Building frame buffer: {len(self.frame_buffer)}/{self.buffer_size}")
-                self.xy_coordinates.append([None, None])
-                return None, None
-
-            # Combine three frames into one input tensor
-            try:
-                combined_frames = np.concatenate(self.frame_buffer, axis=2)  # Concatenate along channel dimension
-                combined_frames = np.rollaxis(combined_frames, 2, 0)  # Change to channels_first format
-                input_tensor = torch.from_numpy(combined_frames).unsqueeze(0).to(self.device)  # Add batch dimension
-            except Exception as e:
-                print(f"Error combining frames: {str(e)}")
-                self.xy_coordinates.append([None, None])
-                return None, None
-
-            # Forward pass
+            # Get model output
             with torch.no_grad():
-                try:
-                    output = self.detector(input_tensor)
-                except Exception as e:
-                    print(f"Error in model forward pass: {str(e)}")
-                    self.xy_coordinates.append([None, None])
-                    return None, None
+                output = self.detector(frame_tensor)
 
-            if output is None:
-                self.xy_coordinates.append([None, None])
-                return None, None
-
-            # Convert output to probabilities
-            prob_map = torch.softmax(output, dim=1)
-            prob_map = prob_map[0, 1].cpu().numpy()  # Get probability map for ball class
+            # Convert output to probability map
+            prob_map = torch.nn.functional.softmax(output[0], dim=0)[1].cpu().numpy()
 
             # Find ball position
-            max_prob = float(np.max(prob_map))
-            if max_prob < self.confidence_threshold:
-                print(f"Low confidence detection: {max_prob:.3f}")
-                self.xy_coordinates.append([None, None])
-                return None, None
+            max_prob = float(np.max(prob_map))  # Convert to Python scalar safely
+            if max_prob > self.confidence_threshold:
+                # Get indices of maximum probability
+                max_idx = np.unravel_index(np.argmax(prob_map), prob_map.shape)
+                y_idx, x_idx = max_idx
 
-            # Get coordinates of maximum probability
-            y_idx, x_idx = np.unravel_index(np.argmax(prob_map), prob_map.shape)
+                # Convert to original frame coordinates
+                h, w = frame.shape[:2]
+                x = float(x_idx * w / prob_map.shape[1])  # Convert to Python scalar safely
+                y = float(y_idx * h / prob_map.shape[0])  # Convert to Python scalar safely
 
-            # Scale coordinates back to original size
-            scale_x = frame.shape[1] / prob_map.shape[1]
-            scale_y = frame.shape[0] / prob_map.shape[0]
-            x = float(x_idx) * scale_x
-            y = float(y_idx) * scale_y
+                print(f"Ball detected at ({x:.1f}, {y:.1f}) with confidence {max_prob:.3f}")
+                return x, y
 
-            # Store coordinates
-            coords = [x, y]
-            self.xy_coordinates.append(coords)
-            print(f"Ball detected at ({x:.1f}, {y:.1f}) with confidence {max_prob:.3f}")
-
-            return x, y
+            return None, None
 
         except Exception as e:
             print(f"Error in ball detection: {str(e)}")
-            self.xy_coordinates.append([None, None])
             return None, None
 
     def calculate_ball_positions(self):
-        """Return list of ball positions"""
+        """Return all detected ball positions."""
         return self.xy_coordinates
 
     def calculate_ball_position_top_view(self, court_detector):
@@ -322,31 +284,56 @@ class BallDetector:
             print(f"Error in preprocessing frames: {str(e)}")
             return None
 
-    def process_video_frames(self, frame):
-        """
-        Process a single video frame.
-        Args:
-            frame: numpy array of shape [height, width, channels]
-        Returns:
-            Tuple of (x, y) coordinates or (None, None) if ball was not detected
-        """
+    def process_video_frames(self, frames):
+        """Process a batch of frames for ball detection."""
+        if len(frames.shape) != 4:  # batch, height, width, channels
+            raise ValueError(f"Expected 4D input (batch,H,W,C), got shape {frames.shape}")
+
+        batch_size = frames.shape[0]
+        print(f"Processing batch of {batch_size} frames")
+
         try:
-            # Print input frame info for debugging
-            print(f"Processing frame with shape: {frame.shape}")
+            # Preprocess batch
+            frames_tensor = self.preprocess_frames_batch(frames)
 
-            # Detect ball
-            x, y = self.detect_ball(frame)
+            # Get predictions
+            with torch.no_grad():
+                output = self.detector(frames_tensor)
+                prob_maps = torch.softmax(output, dim=1).cpu().numpy()
 
-            if x is not None and y is not None:
-                print(f"Ball detected at ({x:.1f}, {y:.1f})")
-            else:
-                print("No ball detected in frame")
+            # Process each frame's predictions
+            for i in range(batch_size):
+                prob_map = prob_maps[i, 1]  # Get ball probability map
+                if prob_map.max() > self.confidence_threshold:
+                    # Get coordinates of maximum probability
+                    y_idx, x_idx = np.unravel_index(prob_map.argmax(), prob_map.shape)
+                    # Scale coordinates back to original size
+                    scale_y = frames.shape[1] / prob_map.shape[0]
+                    scale_x = frames.shape[2] / prob_map.shape[1]
+                    x = float(x_idx * scale_x)
+                    y = float(y_idx * scale_y)
+                    self.xy_coordinates.append([x, y])
+                else:
+                    self.xy_coordinates.append([None, None])
 
-            return x, y
+            return self.xy_coordinates[-batch_size:]
 
         except Exception as e:
-            print(f"Error in processing video frame: {str(e)}")
-            return None, None
+            print(f"Error in batch processing: {str(e)}")
+            return [[None, None]] * batch_size
+
+    def preprocess_frames_batch(self, frames):
+        """Preprocess a batch of frames."""
+        # Convert to float and normalize
+        frames = frames.astype(np.float32) / 255.0
+
+        # Transpose to (batch, channels, height, width)
+        frames = np.transpose(frames, (0, 3, 1, 2))
+
+        # Convert to tensor
+        frames_tensor = torch.from_numpy(frames).to(self.device)
+
+        return frames_tensor
 
 
 if __name__ == "__main__":

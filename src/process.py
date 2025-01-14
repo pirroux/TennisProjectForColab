@@ -2,6 +2,7 @@ import os
 import time
 import sys
 import json
+import torch
 
 
 # Add the project root to the Python path
@@ -372,205 +373,214 @@ def create_top_view(court_detector, detection_model, ball_detector, fps='30'):
     out.release()
     cv2.destroyAllWindows()
 
-def video_process(
-    video_path,
-    output_path=None,
-    create_minimap=True,
-    save_video=True,
-    save_json=True,
-    show_all=False,
-    show_detection=True,
-    show_pose=True,
-    show_ball=False,
-    show_court=False,
-    show_strokes=True,
-    show_minimap=True,
-    batch_size=4,
-    court_detection_timeout=30,
-    **kwargs
-):
+def interpolate_ball_positions(ball_positions, max_frames_to_interpolate=10):
     """
-    Process video and detect all relevant information
+    Interpolate missing ball positions using linear interpolation.
+    Only interpolates if the gap is not too large.
     """
-    # Start timing
-    start_time = time.time()
-    court_detection_time = 0
-    ball_detection_time = 0
-    pose_detection_time = 0
-    stroke_recognition_time = 0
+    positions = np.array(ball_positions)
 
-    # Initialize video capture
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print("Error: Could not open video file")
-        return None
+    # Find sequences of None values
+    none_sequences = []
+    start_idx = None
 
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    for i in range(len(positions)):
+        if positions[i][0] is None:
+            if start_idx is None:
+                start_idx = i
+        elif start_idx is not None:
+            none_sequences.append((start_idx, i))
+            start_idx = None
 
-    print(f"Processing video with {frame_count} frames at {fps} FPS")
+    # Handle the case where the sequence ends with None
+    if start_idx is not None:
+        none_sequences.append((start_idx, len(positions)))
 
-    # Initialize models with error handling
+    # Interpolate each sequence if it's not too long
+    for start, end in none_sequences:
+        seq_length = end - start
+        if seq_length > max_frames_to_interpolate:
+            continue
+
+        if start > 0 and end < len(positions):
+            # Get the positions before and after the None sequence
+            pos_before = positions[start - 1]
+            pos_after = positions[end]
+
+            # Only interpolate if we have valid positions on both sides
+            if None not in pos_before and None not in pos_after:
+                # Create interpolation for x and y separately
+                for i in range(start, end):
+                    fraction = (i - start + 1) / (seq_length + 1)
+                    x = pos_before[0] + fraction * (pos_after[0] - pos_before[0])
+                    y = pos_before[1] + fraction * (pos_after[1] - pos_before[1])
+                    positions[i] = [x, y]
+
+    return positions.tolist()
+
+def video_process(video_path, output_path=None, create_minimap=False, save_video=True, save_json=True,
+                  show_detection=False, show_pose=False, show_ball=False, show_court=False,
+                  show_strokes=False, show_minimap=False):
+    """Process video with batched operations for better performance."""
     try:
-        print("Initializing models...")
-        # Initialize models with weights from Google Drive
-        weights_dir = "/content/drive/MyDrive/Tennis_Weights"
-        ball_detector = BallDetector(os.path.join(weights_dir, "tracknet_weights_2_classes.pth"))
-        court_detector = CourtDetector()
-        pose_detector = PoseDetector()
-        stroke_recognition = ActionRecognition(os.path.join(weights_dir, "storke_classifier_weights.pth"))
-        print("Models initialized successfully")
-    except Exception as e:
-        print(f"Error initializing models: {str(e)}")
-        cap.release()
-        return None
+        start_time = time.time()
+        # Initialize models
+        ball_detector = BallDetector(os.path.join("/content/drive/MyDrive/Tennis_Weights", "tracknet_weights_2_classes.pth"))
+        stroke_recognition = ActionRecognition(os.path.join("/content/drive/MyDrive/Tennis_Weights", "storke_classifier_weights.pth"))
 
-    # Process first frame for court detection with timeout
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to read first frame")
-        cap.release()
-        return None
+        # Open video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print("Error: Could not open video.")
+            return {"status": "error", "message": "Could not open video", "computation_time": 0}
 
-    # Detect court with timeout
-    print("Detecting court...")
-    court_start = time.time()
-    court_detected = False
-    try:
-        court_detected = court_detector.detect(frame)
-        court_detection_time = time.time() - court_start
-        if court_detection_time > court_detection_timeout:
-            print(f"Court detection exceeded timeout of {court_detection_timeout} seconds")
-            cap.release()
-            return None
-        print(f"Court detection completed in {court_detection_time:.2f} seconds")
-    except Exception as e:
-        print(f"Error in court detection: {str(e)}")
-        court_detected = False
+        # Get video properties
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    if not court_detected:
-        print("Court detection failed - proceeding without court detection")
-        # Initialize empty matrices for court detector
-        court_detector.court_warp_matrix = []
-        court_detector.game_warp_matrix = []
+        # Initialize output paths
+        if output_path is None:
+            output_dir = 'output'
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, 'output.mp4')
+            json_path = os.path.join(output_dir, 'shot_analysis.json')
+        else:
+            output_dir = os.path.dirname(output_path)
+            os.makedirs(output_dir, exist_ok=True)
+            json_path = os.path.join(output_dir, 'shot_analysis.json')
 
-    # Initialize result storage
-    ball_positions = []
-    pose_keypoints = []
-    stroke_frames = []
+        # Initialize video writer if saving is enabled
+        if save_video:
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    # Process frames in batches
-    frame_idx = 0
-    last_progress = 0
-    last_fps_check = time.time()
-    frames_since_last_check = 0
+        # Initialize frame buffers and results
+        frame_buffer = []  # For storing consecutive frames for ball detection
+        stroke_frames = []  # Store frames for stroke recognition
+        stroke_results = []  # Store stroke recognition results
+        ball_positions = []  # Store all ball positions
+        raw_ball_positions = []  # Store uninterpolated ball positions
 
-    print("Starting frame processing...")
-    while True:
-        batch_frames = []
-        batch_start = time.time()
-
-        # Read batch_size frames
-        for _ in range(batch_size):
+        # Read first three frames
+        frames = []
+        for _ in range(3):
             ret, frame = cap.read()
             if not ret:
+                raise ValueError("Could not read initial frames")
+            frames.append(frame.copy())
+
+        frame_count = 0
+
+        while True:
+            if not ret or frame_count >= total_frames:
                 break
-            batch_frames.append(frame)
-            frame_idx += 1
-            frames_since_last_check += 1
 
-        if not batch_frames:
-            break
-
-        # Process batch
-        for frame in batch_frames:
+            # Process ball detection using 3 consecutive frames
             try:
-                # Ball detection
-                ball_start = time.time()
-                ball_pos = ball_detector.detect_ball(frame)
-                if ball_pos is not None and isinstance(ball_pos, (list, np.ndarray)) and len(ball_pos) == 2:
-                    # Ensure ball_pos is a numpy array with shape (2,)
-                    ball_pos = np.array(ball_pos).flatten()[:2]
-                    if not np.any(np.isnan(ball_pos)):
-                        ball_positions.append(ball_pos.tolist())
-                    else:
-                        ball_positions.append([None, None])
-                else:
-                    ball_positions.append([None, None])
-                ball_detection_time += time.time() - ball_start
+                # Combine three consecutive frames
+                combined_frames = np.concatenate(frames, axis=2)  # Concatenate along channel dimension
+                combined_frames = combined_frames.transpose((2, 0, 1))  # Convert to channels-first format
+                combined_frames = torch.from_numpy(combined_frames).float().unsqueeze(0) / 255.0  # Normalize and add batch dimension
 
-                # Pose detection (every other frame)
-                if frame_idx % 2 == 0:
-                    pose_start = time.time()
-                    keypoints = pose_detector.detect_pose(frame)
-                    if keypoints is not None:
-                        pose_keypoints.append(keypoints)
-                    pose_detection_time += time.time() - pose_start
-
-                # Stroke recognition (every fourth frame)
-                if frame_idx % 4 == 0 and len(pose_keypoints) > 0:
-                    stroke_start = time.time()
-                    stroke = stroke_recognition.predict_stroke(frame, pose_keypoints[-1])
-                    if stroke is not None:
-                        stroke_frames.append(stroke)
-                    stroke_recognition_time += time.time() - stroke_start
-
+                # Detect ball
+                x, y = ball_detector.detect_ball(combined_frames)
+                ball_positions.append([x, y])
+                raw_ball_positions.append([x, y])
             except Exception as e:
-                print(f"Error processing frame {frame_idx}: {str(e)}")
+                print(f"Error in ball detection: {str(e)}")
                 ball_positions.append([None, None])
-                continue
+                raw_ball_positions.append([None, None])
 
-        # Calculate and print FPS every second
-        current_time = time.time()
-        if current_time - last_fps_check >= 1.0:
-            fps = frames_since_last_check / (current_time - last_fps_check)
-            print(f"Current processing speed: {fps:.1f} FPS")
-            frames_since_last_check = 0
-            last_fps_check = current_time
+            # Process stroke recognition
+            if frame_count % 32 == 0:  # Process every 32 frames
+                try:
+                    probs, stroke = stroke_recognition.predict_stroke(frames[1], None)  # Use middle frame
+                    if stroke:
+                        stroke_results.append({
+                            "frame": frame_count,
+                            "stroke_type": stroke,
+                            "confidence": float(max(probs)) if probs is not None else 0.0
+                        })
+                except Exception as e:
+                    print(f"Error in stroke recognition: {str(e)}")
 
-        # Print progress every 5%
-        progress = (frame_idx / frame_count) * 100
-        if progress - last_progress >= 5:
-            print(f"Processed {frame_idx}/{frame_count} frames ({progress:.1f}%)")
-            last_progress = progress
+            # Write frame to output video
+            if save_video:
+                processed_frame = frames[1].copy()  # Use middle frame
+                if show_ball:
+                    # Show both detected and interpolated positions
+                    if x is not None and y is not None:
+                        # Detected ball position in yellow
+                        cv2.circle(processed_frame, (int(x), int(y)), 5, (0, 255, 255), -1)
+                    elif len(ball_positions) > 0 and ball_positions[-1][0] is not None:
+                        # Interpolated position in red (semi-transparent)
+                        x, y = ball_positions[-1]
+                        cv2.circle(processed_frame, (int(x), int(y)), 5, (0, 0, 255), -1, lineType=cv2.LINE_AA)
+                out.write(processed_frame)
 
-        # Clear some memory
-        if frame_idx % (batch_size * 10) == 0:
-            torch.cuda.empty_cache()
+            # Update frame count and progress
+            frame_count += 1
+            if frame_count % 10 == 0:
+                print(f"Processed {frame_count}/{total_frames} frames ({frame_count/total_frames*100:.1f}%)")
 
-    # Calculate total time
-    total_time = time.time() - start_time
+            # Shift frames and read next frame
+            frames[0] = frames[1]
+            frames[1] = frames[2]
+            ret, frame = cap.read()
+            if ret:
+                frames[2] = frame.copy()
+            else:
+                frames[2] = frames[1].copy()  # Duplicate last frame if no more frames
 
-    print(f"\nProcessing completed in {total_time:.2f} seconds")
-    print(f"Average speed: {frame_count/total_time:.1f} FPS")
+        # Interpolate missing ball positions
+        interpolated_positions = interpolate_ball_positions(ball_positions)
 
-    # Create result dictionary
-    result = {
-        'video_path': video_path,
-        'fps': fps,
-        'frame_count': frame_count,
-        'width': width,
-        'height': height,
-        'total_time': total_time,
-        'court_detection_time': court_detection_time,
-        'ball_detection_time': ball_detection_time,
-        'pose_detection_time': pose_detection_time,
-        'stroke_recognition_time': stroke_recognition_time,
-        'court_detected': court_detected,
-        'court_points': court_detector.court_points if court_detected else None,
-        'ball_positions': ball_positions,
-        'ball_positions_top_view': ball_detector.calculate_ball_position_top_view(court_detector) if court_detected else None,
-        'pose_keypoints': pose_keypoints,
-        'strokes': stroke_frames
-    }
+        # Release resources
+        cap.release()
+        if save_video:
+            out.release()
+        cv2.destroyAllWindows()
 
-    # Clean up
-    cap.release()
-    print("Processing complete!")
+        # Prepare results
+        results = {
+            "status": "success",
+            "ball_positions": {
+                "interpolated": interpolated_positions,
+                "raw": raw_ball_positions
+            },
+            "strokes": stroke_results,
+            "video_info": {
+                "total_frames": total_frames,
+                "fps": fps,
+                "resolution": f"{width}x{height}"
+            },
+            "output_path": output_path if save_video else None,
+            "computation_time": time.time() - start_time
+        }
 
-    return result
+        # Save results to JSON file if requested
+        if save_json:
+            with open(json_path, 'w') as f:
+                json.dump(results, f, indent=4)
+            print(f"Analysis results saved to {json_path}")
+
+        return results
+
+    except Exception as e:
+        print(f"Error in video processing: {str(e)}")
+        # Clean up resources in case of error
+        if 'cap' in locals():
+            cap.release()
+        if 'out' in locals() and save_video:
+            out.release()
+        cv2.destroyAllWindows()
+        return {
+            "status": "error",
+            "message": str(e),
+            "computation_time": time.time() - start_time
+        }
 
 def calculate_player_distance(positions):
     """
