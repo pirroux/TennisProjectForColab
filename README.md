@@ -11,10 +11,10 @@ This project is mainly focused on official match videos, and camera position and
 
 Example for some tasks completed in this project are:
 1. Detecting and tracking the tennis court in frame
-2. Detecting and tracking both player in the frame 
-3. Detecting and tracking the ball 
+2. Detecting and tracking both player in the frame
+3. Detecting and tracking the ball
 4. Extract the bottom player skeleton
-5. Detecting the exact moment of strokes 
+5. Detecting the exact moment of strokes
 6. Classify the strokes of the bottom player
 7. Create top view gameplay
 8. Calculate statistics of the gameplay of both players including positions heatmap and distance travelled
@@ -27,3 +27,32 @@ Python 3.4, OpenCV (cv2), PyTorch and other common packages listed in `requireme
 
 ## Entry point
 Entry point for the code is in process.py (scroll to the bottom to see main function video_process(...)).
+
+## Required Model Weights
+
+Before running the project, you need to download the following model weight files and place them in the `src/saved states/` directory:
+
+1. `tracknet_weights_2_classes.pth` - Ball detection model weights
+2. `storke_classifier_weights.pth` - Stroke classification model weights
+
+### Downloading the Weights
+
+The model weights are available on Google Drive. To download them:
+
+1. Visit [Google Drive Link - Add your link here]
+2. Download both `.pth` files
+3. Place them in the `src/saved states/` directory of this project
+
+Without these weight files, the ball detection and stroke classification features will not work.
+
+## Project Structure
+
+```
+src/
+├── saved states/        # Directory for model weights
+│   ├── tracknet_weights_2_classes.pth    # Ball detection weights (download required)
+│   └── storke_classifier_weights.pth     # Stroke classification weights (download required)
+├── ball_detection.py    # Ball detection implementation
+├── court_detection.py   # Court detection implementation
+└── ...
+```
