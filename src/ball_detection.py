@@ -58,25 +58,24 @@ class BallDetector:
             cls._instance = super(BallDetector, cls).__new__(cls)
             cls._instance.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             cls._instance.detector = BallTrackerNet(out_channels=2).to(cls._instance.device)
+            cls._instance.confidence_threshold = 0.5  # Add confidence threshold
+            cls._instance.frame_buffer = []
+            cls._instance.buffer_size = 3
+            cls._instance.xy_coordinates = []
 
             print("Loading weights from:", weights_path)
             try:
-                # Add numpy scalar and dtype to safe globals
                 add_safe_globals([scalar, dtype])
-
-                # First try loading with weights_only=True
                 checkpoint = torch.load(weights_path, weights_only=True)
             except Exception as e:
                 print(f"Warning: Failed to load with weights_only=True, attempting without: {str(e)}")
                 checkpoint = torch.load(weights_path, weights_only=False)
 
-            # Handle both dictionary and direct state dict formats
             if isinstance(checkpoint, dict) and 'model_state' in checkpoint:
                 state_dict = checkpoint['model_state']
             else:
                 state_dict = checkpoint
 
-            # Try loading state dict
             try:
                 cls._instance.detector.load_state_dict(state_dict, strict=True)
             except RuntimeError as e:
@@ -84,9 +83,6 @@ class BallDetector:
                 cls._instance.detector.load_state_dict(state_dict, strict=False)
 
             cls._instance.detector.eval()
-            cls._instance.frame_buffer = []
-            cls._instance.buffer_size = 3
-            cls._instance.xy_coordinates = []
             print("Weights loaded successfully")
 
         return cls._instance
@@ -100,18 +96,19 @@ class BallDetector:
         if frame is None:
             return None
         try:
+            # Resize frame
             frame = cv2.resize(frame, (640, 360))
-            frame = torch.from_numpy(frame).float().permute(2, 0, 1) / 255.0
+
+            # Convert to float and normalize
+            frame = frame.astype(np.float32) / 255.0
             return frame
+
         except Exception as e:
             print(f"Error in preprocess_frame: {str(e)}")
             return None
 
     def detect_ball(self, frame):
-        """
-        Detect ball in the current frame using a buffer of 3 frames
-        Returns: x, y coordinates of the ball as Python scalars
-        """
+        """Detect ball in the current frame using a buffer of 3 frames"""
         try:
             # Preprocess current frame
             processed_frame = self.preprocess_frame(frame)
@@ -121,53 +118,69 @@ class BallDetector:
 
             # Update frame buffer
             self.frame_buffer.append(processed_frame)
-            if len(self.frame_buffer) > self.buffer_size:
-                self.frame_buffer.pop(0)
 
-            # If we don't have enough frames yet, return None
+            # Keep only the last 3 frames
+            if len(self.frame_buffer) > self.buffer_size:
+                self.frame_buffer = self.frame_buffer[-self.buffer_size:]
+
+            # If we don't have enough frames yet, store None and return
             if len(self.frame_buffer) < self.buffer_size:
+                print(f"Building frame buffer: {len(self.frame_buffer)}/{self.buffer_size}")
                 self.xy_coordinates.append([None, None])
                 return None, None
 
-            # Stack frames into single input tensor
-            input_tensor = torch.cat(self.frame_buffer, dim=0).unsqueeze(0)
-            input_tensor = input_tensor.to(self.device)
+            # Combine three frames into one input tensor
+            try:
+                combined_frames = np.concatenate(self.frame_buffer, axis=2)  # Concatenate along channel dimension
+                combined_frames = np.rollaxis(combined_frames, 2, 0)  # Change to channels_first format
+                input_tensor = torch.from_numpy(combined_frames).unsqueeze(0).to(self.device)  # Add batch dimension
+            except Exception as e:
+                print(f"Error combining frames: {str(e)}")
+                self.xy_coordinates.append([None, None])
+                return None, None
 
-            # Get model prediction
+            # Forward pass
             with torch.no_grad():
-                output = self.detector(input_tensor)
+                try:
+                    output = self.detector(input_tensor)
+                except Exception as e:
+                    print(f"Error in model forward pass: {str(e)}")
+                    self.xy_coordinates.append([None, None])
+                    return None, None
 
             if output is None:
                 self.xy_coordinates.append([None, None])
                 return None, None
 
-            # Convert output to probability map using softmax
-            prob_map = F.softmax(output[0], dim=0)  # Keep as tensor
-            prob_map = prob_map[1].cpu().numpy()  # Convert to numpy array
+            # Convert output to probabilities
+            prob_map = torch.softmax(output, dim=1)
+            prob_map = prob_map[0, 1].cpu().numpy()  # Get probability map for ball class
 
-            # Find ball center using maximum probability
-            max_prob = np.max(prob_map)  # Get max probability
-            if max_prob < 0.5:  # Confidence threshold
+            # Find ball position
+            max_prob = float(np.max(prob_map))
+            if max_prob < self.confidence_threshold:
+                print(f"Low confidence detection: {max_prob:.3f}")
                 self.xy_coordinates.append([None, None])
                 return None, None
 
             # Get coordinates of maximum probability
-            max_index = np.argmax(prob_map)
-            y_idx, x_idx = np.unravel_index(max_index, prob_map.shape)
+            y_idx, x_idx = np.unravel_index(np.argmax(prob_map), prob_map.shape)
 
-            # Convert indices to Python scalars
-            x = int(x_idx)  # Convert to int first
-            y = int(y_idx)  # Convert to int first
-            x = float(x)    # Then to float
-            y = float(y)    # Then to float
+            # Scale coordinates back to original size
+            scale_x = frame.shape[1] / prob_map.shape[1]
+            scale_y = frame.shape[0] / prob_map.shape[0]
+            x = float(x_idx) * scale_x
+            y = float(y_idx) * scale_y
 
-            # Store coordinates as a list of Python scalars
+            # Store coordinates
             coords = [x, y]
             self.xy_coordinates.append(coords)
+            print(f"Ball detected at ({x:.1f}, {y:.1f}) with confidence {max_prob:.3f}")
+
             return x, y
 
         except Exception as e:
-            print(f"Error in detect_ball: {str(e)}")
+            print(f"Error in ball detection: {str(e)}")
             self.xy_coordinates.append([None, None])
             return None, None
 
@@ -182,33 +195,44 @@ class BallDetector:
                 return [[None, None]]
 
             positions = []
-            for pos in self.xy_coordinates:
-                if pos[0] is None or pos[1] is None:
-                    positions.append([None, None])
-                    continue
+            for i, pos in enumerate(self.xy_coordinates):
+                try:
+                    # Skip if no ball detected
+                    if pos[0] is None or pos[1] is None:
+                        positions.append([None, None])
+                        continue
 
-                if not court_detector.game_warp_matrix:
-                    positions.append([None, None])
-                    continue
+                    # Skip if no court detection
+                    if not court_detector.game_warp_matrix:
+                        positions.append([None, None])
+                        continue
 
-                # Use the last available transformation matrix
-                matrix_idx = min(len(court_detector.game_warp_matrix) - 1, len(positions))
-                matrix = court_detector.game_warp_matrix[matrix_idx]
+                    # Get appropriate transformation matrix
+                    matrix_idx = min(len(court_detector.game_warp_matrix) - 1, i)
+                    matrix = court_detector.game_warp_matrix[matrix_idx]
 
-                # Transform point
-                point = np.array([[pos]], dtype=np.float32)
-                transformed_point = cv2.perspectiveTransform(point, matrix)
+                    # Prepare point for transformation
+                    point = np.array([[[float(pos[0]), float(pos[1])]]], dtype=np.float32)
 
-                if transformed_point is not None:
-                    positions.append([float(transformed_point[0][0][0]), float(transformed_point[0][0][1])])
-                else:
+                    # Transform point
+                    transformed_point = cv2.perspectiveTransform(point, matrix)
+
+                    if transformed_point is not None and transformed_point.size > 0:
+                        x = float(transformed_point[0, 0, 0])
+                        y = float(transformed_point[0, 0, 1])
+                        positions.append([x, y])
+                    else:
+                        positions.append([None, None])
+
+                except Exception as e:
+                    print(f"Error transforming point at index {i}: {str(e)}")
                     positions.append([None, None])
 
             return positions
 
         except Exception as e:
             print(f"Error in calculate_ball_position_top_view: {str(e)}")
-            return [[None, None]]
+            return [[None, None]] * len(self.xy_coordinates)
 
     def mark_positions(self, frame, mark_num=4, frame_num=None, ball_color='yellow'):
         """
@@ -268,6 +292,61 @@ class BallDetector:
         plt.title('Ball and Players Y-Index Positions Over Frames')
         plt.legend()
         plt.savefig('graph_video.jpg')
+
+    def preprocess_frames(self, frames):
+        """
+        Preprocess frames for ball detection.
+        Args:
+            frames: numpy array of shape [batch_size, height, width, channels]
+        Returns:
+            torch tensor of shape [batch_size, channels, height, width]
+        """
+        try:
+            # Convert to float and normalize
+            frames = frames.astype(np.float32) / 255.0
+
+            # Convert to torch tensor
+            frames = torch.from_numpy(frames)
+
+            # Reshape if necessary [batch_size, height, width, channels] -> [batch_size, channels, height, width]
+            if frames.shape[-1] == 3:
+                frames = frames.permute(0, 3, 1, 2)
+
+            # Move to device
+            frames = frames.to(self.device)
+
+            print(f"Preprocessed frames shape: {frames.shape}")
+            return frames
+
+        except Exception as e:
+            print(f"Error in preprocessing frames: {str(e)}")
+            return None
+
+    def process_video_frames(self, frame):
+        """
+        Process a single video frame.
+        Args:
+            frame: numpy array of shape [height, width, channels]
+        Returns:
+            Tuple of (x, y) coordinates or (None, None) if ball was not detected
+        """
+        try:
+            # Print input frame info for debugging
+            print(f"Processing frame with shape: {frame.shape}")
+
+            # Detect ball
+            x, y = self.detect_ball(frame)
+
+            if x is not None and y is not None:
+                print(f"Ball detected at ({x:.1f}, {y:.1f})")
+            else:
+                print("No ball detected in frame")
+
+            return x, y
+
+        except Exception as e:
+            print(f"Error in processing video frame: {str(e)}")
+            return None, None
 
 
 if __name__ == "__main__":
